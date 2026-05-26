@@ -21,30 +21,15 @@ from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.widgets import Footer, Header
 
-from pydantic_ai import AgentRunResultEvent
-from pydantic_ai.messages import (
-    BuiltinToolCallEvent,
-    BuiltinToolResultEvent,
-    FunctionToolCallEvent,
-    FunctionToolResultEvent,
-    PartDeltaEvent,
-    PartStartEvent,
-    RetryPromptPart,
-    TextPart,
-    TextPartDelta,
-    ToolReturnPart,
-)
-
+from minicc.core.chat_events import Done, Error, TextDelta, ToolFinished, ToolStarted
 from minicc.core.config import load_config
 from minicc.core.events import (
     AskUserRequested,
     SubAgentCreated,
     SubAgentUpdated,
     TodoUpdated,
-    ToolCallFinished,
-    ToolCallStarted,
 )
-from minicc.core.models import ToolResult, UserCancelledError
+from minicc.core.models import UserCancelledError
 from minicc.core.runtime import MiniCCRuntime, build_runtime
 from minicc.tui.ask_user_panel import AskUserPanel
 from minicc.tui.chat_input import ChatInput
@@ -66,7 +51,6 @@ class MiniCCApp(App):
         super().__init__()
         config = load_config()
         self.runtime = runtime or build_runtime(config=config, cwd=os.getcwd())
-        self.messages: list[Any] = []
         self._is_processing = False
         self._git_branch = self._get_git_branch()
 
@@ -190,65 +174,49 @@ class MiniCCApp(App):
     @work(exclusive=True, group="chat")
     async def _process_message(self, user_input: str) -> None:
         self._is_processing = True
+        streamed_text = ""
         try:
-            streamed_text = ""
-            async for event in self.runtime.agent.run_stream_events(
-                user_input,
-                deps=self.runtime.deps,
-                message_history=self.messages,
-            ):
-                if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
-                    streamed_text += event.part.content
+            async for event in self.runtime.chat_service.send_message(user_input):
+                if isinstance(event, TextDelta):
+                    streamed_text = event.content
                     self._update_streaming_assistant(streamed_text)
-                elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
-                    streamed_text += event.delta.content_delta
-                    self._update_streaming_assistant(streamed_text)
-                elif isinstance(event, (FunctionToolCallEvent, BuiltinToolCallEvent)):
-                    part = event.part
-                    args = None
-                    try:
-                        args = part.args_as_dict()
-                    except Exception:
-                        try:
-                            args = part.args if isinstance(part.args, dict) else None
-                        except Exception:
-                            args = None
-                    self.runtime.event_bus.emit(
-                        ToolCallStarted(tool_call_id=part.tool_call_id, tool_name=part.tool_name, args=args)
-                    )
-                elif isinstance(event, (FunctionToolResultEvent, BuiltinToolResultEvent)):
-                    result_part = event.result
-                    tool_name = getattr(result_part, "tool_name", "") or ""
-                    ok, err = _tool_result_to_status(result_part)
-                    self.runtime.event_bus.emit(
-                        ToolCallFinished(
-                            tool_call_id=result_part.tool_call_id,
-                            tool_name=tool_name,
-                            ok=ok,
-                            content=getattr(result_part, "content", None),
-                            error=err,
-                        )
-                    )
-                elif isinstance(event, AgentRunResultEvent):
-                    final_text = streamed_text or str(event.result.output)
+
+                elif isinstance(event, ToolStarted):
+                    line = ToolCallLine(event.tool_name, event.args, status="running")
+                    self._tool_lines[event.tool_call_id] = line
+                    self._chat_container().mount(line)
+                    self._ensure_stream_panel_last()
+                    self._scroll_chat_end()
+
+                elif isinstance(event, ToolFinished):
+                    line = self._tool_lines.get(event.tool_call_id)
+                    if line is None:
+                        line = ToolCallLine(event.tool_name, {}, status="running")
+                        self._tool_lines[event.tool_call_id] = line
+                        self._chat_container().mount(line)
+                    line.update_status("completed" if event.ok else "failed")
+                    self._ensure_stream_panel_last()
+                    self._scroll_chat_end()
+
+                elif isinstance(event, Done):
                     if self._streaming_assistant_panel is not None:
-                        self._streaming_assistant_panel.set_content(final_text)
+                        self._streaming_assistant_panel.set_content(streamed_text)
                         self._scroll_chat_end()
                     else:
-                        self._append_message(final_text, role="assistant")
-                    self.messages = event.result.all_messages()
-                    usage = event.result.usage()
-                    if usage:
-                        self._update_tokens(usage)
+                        self._append_message(streamed_text, role="assistant")
+                    if event.usage:
+                        self._update_tokens(event.usage)
 
-        except UserCancelledError:
-            self._append_message("⚠️ 操作已取消", role="system")
-        except Exception as e:
-            if os.environ.get("MINICC_DEBUG"):
-                tb = traceback.format_exc()
-                self._append_message(f"❌ 错误: {e}\n\n```text\n{tb}\n```", role="system")
-            else:
-                self._append_message(f"❌ 错误: {e}", role="system")
+                elif isinstance(event, Error):
+                    if isinstance(event.exception, UserCancelledError):
+                        self._append_message("⚠️ 操作已取消", role="system")
+                    else:
+                        msg = str(event.exception)
+                        if os.environ.get("MINICC_DEBUG"):
+                            tb = traceback.format_exc()
+                            msg = f"{msg}\n\n```text\n{tb}\n```"
+                        self._append_message(f"❌ 错误: {msg}", role="system")
+
         finally:
             self._is_processing = False
             self._scroll_chat_end()
@@ -256,11 +224,7 @@ class MiniCCApp(App):
     @work(group="events")
     async def _consume_events(self) -> None:
         async for ev in self.runtime.event_bus.iter():
-            if isinstance(ev, ToolCallStarted):
-                self._on_tool_started(ev)
-            elif isinstance(ev, ToolCallFinished):
-                self._on_tool_finished(ev)
-            elif isinstance(ev, TodoUpdated):
+            if isinstance(ev, TodoUpdated):
                 self._on_todo_updated(ev)
             elif isinstance(ev, AskUserRequested):
                 self._on_ask_user_requested(ev)
@@ -268,24 +232,6 @@ class MiniCCApp(App):
                 self._on_subagent_created(ev)
             elif isinstance(ev, SubAgentUpdated):
                 self._on_subagent_updated(ev)
-
-    def _on_tool_started(self, ev: ToolCallStarted) -> None:
-        line = ToolCallLine(ev.tool_name, ev.args, status="running")
-        self._tool_lines[ev.tool_call_id] = line
-        chat = self._chat_container()
-        chat.mount(line)
-        self._ensure_stream_panel_last()
-        self._scroll_chat_end()
-
-    def _on_tool_finished(self, ev: ToolCallFinished) -> None:
-        line = self._tool_lines.get(ev.tool_call_id)
-        if line is None:
-            line = ToolCallLine(ev.tool_name, {}, status="running")
-            self._tool_lines[ev.tool_call_id] = line
-            self._chat_container().mount(line)
-        line.update_status("completed" if ev.ok else "failed")
-        self._ensure_stream_panel_last()
-        self._scroll_chat_end()
 
     def _on_todo_updated(self, ev: TodoUpdated) -> None:
         todo_display = self.query_one("#todo_display", TodoDisplay)
@@ -357,7 +303,7 @@ class MiniCCApp(App):
         chat = self._chat_container()
         for child in list(chat.children):
             child.remove()
-        self.messages = []
+        self.runtime.chat_service.clear()
         self._tool_lines.clear()
         self._subagent_lines.clear()
         self._streaming_assistant_panel = None
@@ -549,22 +495,6 @@ def _find_at_reference(text: str, cursor_pos: int) -> tuple[int, str] | None:
     at_pos = m.start(0) + len(m.group(1))
     query = m.group(2)
     return at_pos, query
-
-
-def _tool_result_to_status(result_part: ToolReturnPart | RetryPromptPart) -> tuple[bool, str | None]:
-    if isinstance(result_part, RetryPromptPart):
-        return False, str(result_part.content)
-    content = result_part.content
-    if isinstance(content, ToolResult):
-        return bool(content.success), content.error
-    if hasattr(content, "success") and hasattr(content, "error"):
-        try:
-            ok = bool(getattr(content, "success"))
-            err = getattr(content, "error", None)
-            return ok, err
-        except Exception:
-            pass
-    return True, None
 
 
 def main() -> None:

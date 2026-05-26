@@ -25,22 +25,6 @@ class EventBus(Generic[T]):
 
 
 @dataclass(frozen=True)
-class ToolCallStarted:
-    tool_call_id: str
-    tool_name: str
-    args: dict[str, Any] | None
-
-
-@dataclass(frozen=True)
-class ToolCallFinished:
-    tool_call_id: str
-    tool_name: str
-    ok: bool
-    content: Any
-    error: str | None = None
-
-
-@dataclass(frozen=True)
 class TodoUpdated:
     todos: list[Any]
 

@@ -16,6 +16,7 @@ CONFIG_DIR = Path.home() / ".minicc"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 AGENTS_FILE = CONFIG_DIR / "AGENTS.md"
 MCP_CONFIG_FILE = CONFIG_DIR / "mcp.json"
+HISTORY_FILE = CONFIG_DIR / "history.json"
 
 # 项目级 MCP 配置位置：<cwd>/.minicc/mcp.json
 PROJECT_CONFIG_DIRNAME = ".minicc"

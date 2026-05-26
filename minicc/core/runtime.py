@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from agent_gear import FileSystem
 
 from minicc.core.agent import create_agent
+from minicc.core.chat_service import ChatService
 from minicc.core.events import EventBus
 from minicc.core.mcp import load_mcp_toolsets
 from minicc.core.models import Config, MiniCCDeps
+from minicc.core.persistence import MessageStore
 from minicc.core.services.ask_user import AskUserService
 from minicc.core.services.subagents import SubAgentService
 from minicc.tools import register_tools
@@ -19,7 +21,7 @@ class MiniCCRuntime:
     config: Config
     cwd: str
     deps: MiniCCDeps
-    agent: object
+    chat_service: ChatService
     event_bus: EventBus
     fs: FileSystem
     toolsets: list
@@ -50,5 +52,7 @@ def build_runtime(config: Config | None = None, cwd: str | None = None) -> MiniC
     deps.subagent_service = SubAgentService(deps=deps, event_bus=event_bus, agent_factory=_subagent_factory)
 
     agent = create_agent(cfg, cwd=cwd, toolsets=toolsets, register_tools=register_tools)
-    return MiniCCRuntime(config=cfg, cwd=cwd, deps=deps, agent=agent, event_bus=event_bus, fs=fs, toolsets=toolsets)
+    store = MessageStore()
+    chat_service = ChatService(agent=agent, deps=deps, store=store)
+    return MiniCCRuntime(config=cfg, cwd=cwd, deps=deps, chat_service=chat_service, event_bus=event_bus, fs=fs, toolsets=toolsets)
 
