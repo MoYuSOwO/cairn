@@ -16,14 +16,27 @@ from minicc.core.models import DiffLine, TodoItem
 
 
 class MessagePanel(Static):
-    def __init__(self, content: str, role: str = "user", **kwargs):
+    class RollbackRequested(Message):
+        """用户点击了某条消息，请求回滚到该位置。"""
+
+        def __init__(self, index: int, content: str):
+            self.index = index
+            self.content = content
+            super().__init__()
+
+    def __init__(self, content: str, role: str = "user", history_index: int = -1, **kwargs):
         self.role = role
         self._content = content
+        self.history_index = history_index
         super().__init__(content, markup=False, **kwargs)
 
     def set_content(self, content: str) -> None:
         self._content = content
         self.update(content)
+
+    def on_click(self):
+        if self.history_index >= 0:
+            self.post_message(self.RollbackRequested(self.history_index, self._content))
 
     def render(self) -> Panel:
         role_style = {

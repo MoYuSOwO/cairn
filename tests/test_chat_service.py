@@ -325,3 +325,60 @@ async def test_queue_serializes_requests(tmp_path):
 
     # Must be sequential: a then a
     assert order == ["a", "a"]
+
+
+# ---- rollback tests ----
+
+
+@pytest.mark.asyncio
+async def test_rollback_truncates_history(tmp_path):
+    store = _make_store(tmp_path)
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="msg1")]),
+        ModelResponse(parts=[TextPart(content="r1")]),
+        ModelRequest(parts=[UserPromptPart(content="msg2")]),
+        ModelResponse(parts=[TextPart(content="r2")]),
+        ModelRequest(parts=[UserPromptPart(content="msg3")]),
+        ModelResponse(parts=[TextPart(content="r3")]),
+    ]
+    store.save(messages)
+
+    svc = ChatService(agent=FakeAgent([]), deps=_make_deps(), store=store)
+    assert len(svc.messages) == 6
+
+    ok = await svc.rollback_to(2)
+    assert ok is True
+    assert len(svc.messages) == 2
+    assert store.load()[0].parts[0].content == "msg1"
+
+
+@pytest.mark.asyncio
+async def test_rollback_rejected_when_busy(tmp_path):
+    svc = ChatService(agent=FakeAgent([AgentRunResultEvent(result=_FakeResult(output="ok"))]), deps=_make_deps(), store=_make_store(tmp_path))
+    svc._busy = True
+
+    ok = await svc.rollback_to(0)
+    assert ok is False
+    assert len(svc.messages) == 0  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_rollback_publishes_snapshot(tmp_path):
+    store = _make_store(tmp_path)
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="a")]),
+        ModelResponse(parts=[TextPart(content="b")]),
+        ModelRequest(parts=[UserPromptPart(content="c")]),
+        ModelResponse(parts=[TextPart(content="d")]),
+    ]
+    store.save(messages)
+
+    svc = ChatService(agent=FakeAgent([]), deps=_make_deps(), store=store)
+
+    ok = await svc.rollback_to(2)
+    assert ok is True
+
+    # Should have history_snapshot in broadcast
+    wrapped = await svc._broadcast.get()
+    assert wrapped["kind"] == "history_snapshot"
+    assert wrapped["message_count"] == 2

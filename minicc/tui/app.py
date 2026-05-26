@@ -316,8 +316,7 @@ class MiniCCApp(App):
                 self._streaming_assistant_panel = None
 
             elif etype == "history_snapshot":
-                count = msg.get("message_count", 0)
-                self._append_message(f"历史快照 ({count} 条消息)", role="system")
+                self._rebuild_from_snapshot(msg.get("messages", []))
 
             elif etype == "todo_updated":
                 self._handle_todo_dict(msg)
@@ -443,6 +442,17 @@ class MiniCCApp(App):
         self._ensure_stream_panel_last()
         self._scroll_chat_end()
 
+    def on_message_panel_rollback_requested(self, event: MessagePanel.RollbackRequested) -> None:
+        input_widget = self.query_one("#input", ChatInput)
+        input_widget.text = event.content
+        input_widget.focus()
+        if self._mode == "client":
+            import asyncio
+            asyncio.create_task(self._client.rollback_to(event.index))
+        else:
+            import asyncio
+            asyncio.create_task(self.runtime.chat_service.rollback_to(event.index))
+
     def on_todo_display_closed(self, message: TodoDisplay.Closed) -> None:
         todo_display = self.query_one("#todo_display", TodoDisplay)
         todo_display.update_todos([])
@@ -491,8 +501,8 @@ class MiniCCApp(App):
     def _chat_container(self) -> VerticalScroll:
         return self.query_one("#chat_container", VerticalScroll)
 
-    def _append_message(self, content: str, role: str = "assistant") -> MessagePanel:
-        panel = MessagePanel(content, role=role)
+    def _append_message(self, content: str, role: str = "assistant", history_index: int = -1) -> MessagePanel:
+        panel = MessagePanel(content, role=role, history_index=history_index)
         chat = self._chat_container()
         chat.mount(panel)
         self._scroll_chat_end()
@@ -507,6 +517,26 @@ class MiniCCApp(App):
             self._streaming_assistant_panel = self._append_message("", role="assistant")
         self._streaming_assistant_panel.set_content(content)
         self._scroll_chat_end()
+
+    def _rebuild_from_snapshot(self, messages: list[dict]) -> None:
+        chat = self._chat_container()
+        for child in list(chat.children):
+            if isinstance(child, MessagePanel):
+                child.remove()
+        self._tool_lines.clear()
+        self._subagent_lines.clear()
+        for i, msg in enumerate(messages):
+            kind = msg.get("kind", "")
+            role = "user" if kind == "request" else "assistant"
+            parts = msg.get("parts", [])
+            content_parts: list[str] = []
+            for p in parts:
+                c = p.get("content", "")
+                if c:
+                    content_parts.append(c)
+            content = "\n".join(content_parts).strip()
+            if content:
+                self._append_message(content, role=role, history_index=i)
 
     def _ensure_stream_panel_last(self) -> None:
         if self._streaming_assistant_panel is None:

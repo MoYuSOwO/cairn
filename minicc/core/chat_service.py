@@ -79,10 +79,15 @@ class ChatService:
         self._request_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         self._broadcast: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
+        self._busy: bool = False
 
     @property
     def messages(self) -> list[Any]:
         return list(self._messages)
+
+    @property
+    def busy(self) -> bool:
+        return self._busy
 
     # ---- 直接模式（嵌入式 TUI）----
 
@@ -106,6 +111,15 @@ class ChatService:
         q: asyncio.Queue[dict] = asyncio.Queue()
         return q
 
+    async def rollback_to(self, index: int) -> bool:
+        """截断历史到 [:index]。忙碌时拒绝，返回 False。"""
+        if self._busy:
+            return False
+        self._messages = self._messages[:index]
+        self._store.save(self._messages)
+        await self._publish_snapshot()
+        return True
+
     async def _publish_snapshot(self) -> None:
         """广播当前完整消息历史快照。"""
         data = _as_json_compatible(self._messages)
@@ -119,6 +133,7 @@ class ChatService:
         """后台 worker，从队列取请求、顺序处理，事件通过 _broadcast 发布。"""
         while True:
             request_id, text = await self._request_queue.get()
+            self._busy = True
             await self._broadcast.put({"request_id": request_id, "kind": "request_started", "text": text})
             try:
                 async for event in self._process(text):
@@ -128,6 +143,7 @@ class ChatService:
             finally:
                 await self._broadcast.put({"request_id": request_id, "kind": "request_finished"})
                 await self._publish_snapshot()
+                self._busy = False
 
     # ---- 内部实现 ----
 

@@ -270,6 +270,11 @@ def create_app(cwd: str | None = None) -> Any:
                 if msg_type == "chat":
                     await chat_service.submit(msg["text"])
 
+                elif msg_type == "rollback":
+                    ok = await chat_service.rollback_to(msg.get("index", 0))
+                    if not ok:
+                        await cq.put({"type": "error", "message": "Agent 正在处理中，无法回滚"})
+
                 elif msg_type == "clear":
                     await chat_service.clear()
 

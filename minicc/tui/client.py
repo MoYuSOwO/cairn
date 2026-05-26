@@ -64,5 +64,8 @@ class ChatClient:
             "answers": answers,
         }))
 
+    async def rollback_to(self, index: int) -> None:
+        await self._ws.send(json.dumps({"type": "rollback", "index": index}))
+
     async def clear(self) -> None:
         await self._ws.send(json.dumps({"type": "clear"}))
