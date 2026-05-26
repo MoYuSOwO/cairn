@@ -3,10 +3,8 @@ MiniCC 后端服务 — FastAPI + WebSocket。
 
 端点:
   GET  /health   健康检查
-  POST /inject   远程注入（fire-and-forget，立即返回）
-  WS   /ws       双向流式聊天（TUI 客户端使用）
-
-所有请求通过 ChatService 队列顺序执行，避免并发冲突。
+  POST /inject   远程注入（fire-and-forget）
+  WS   /ws       双向流式（所有客户端收到全部事件广播）
 """
 
 from __future__ import annotations
@@ -165,7 +163,6 @@ def create_app(cwd: str | None = None) -> Any:
         pass
 
     agent = create_agent(config, cwd=cwd, toolsets=toolsets, register_tools=register_tools)
-
     deps = MiniCCDeps(config=config, cwd=cwd, fs=fs)
     event_bus = deps.event_bus
 
@@ -182,13 +179,51 @@ def create_app(cwd: str | None = None) -> Any:
 
     app = FastAPI(title="MiniCC Server")
 
+    # ---- 扇出：从 broadcast + event_bus 读事件，分发到所有 WS 客户端 ----
+
+    client_queues: list[asyncio.Queue[dict]] = []
+
+    async def _fanout():
+        async def _read_broadcast():
+            while True:
+                wrapped = await chat_service._broadcast.get()
+                rid = wrapped["request_id"]
+                kind = wrapped["kind"]
+                if kind == "request_started":
+                    msg = {"type": "request_started", "request_id": rid, "text": wrapped["text"]}
+                elif kind == "request_finished":
+                    msg = {"type": "request_finished", "request_id": rid}
+                elif kind == "chat_event":
+                    data = serialize_chat_event(wrapped["event"])
+                    if data is None:
+                        continue
+                    data["request_id"] = rid
+                    msg = data
+                else:
+                    continue
+                for cq in client_queues:
+                    await cq.put(msg)
+
+        async def _read_eventbus():
+            async for ev in event_bus.iter():
+                data = serialize_event(ev)
+                if data:
+                    for cq in client_queues:
+                        await cq.put(data)
+
+        await asyncio.gather(_read_broadcast(), _read_eventbus())
+
+    fanout_task: asyncio.Task | None = None
+
+    # ---- 端点 ----
+
     @app.get("/health")
     async def health():
         return {"status": "ok", "model": config.model, "provider": config.provider.value}
 
     @app.post("/inject")
     async def inject(request: dict):
-        """远程注入 — fire-and-forget，立即返回。Agent 通过工具异步响应。"""
+        """远程注入 — fire-and-forget。Agent 异步处理，所有 WS 客户端可见。"""
         text = request.get("text", "")
         if not text:
             return JSONResponse({"error": "text is required"}, status_code=400)
@@ -197,39 +232,25 @@ def create_app(cwd: str | None = None) -> Any:
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
+        nonlocal fanout_task
         await ws.accept()
-        send_lock = asyncio.Lock()
-        chat_running = False
 
-        async def send_json(data: dict):
-            async with send_lock:
-                await ws.send_json(data)
+        # 启动扇出（首次连接时）
+        if fanout_task is None:
+            fanout_task = asyncio.create_task(_fanout())
 
-        async def forward_events():
+        cq: asyncio.Queue[dict] = asyncio.Queue()
+        client_queues.append(cq)
+
+        async def _send_to_client():
             try:
-                async for ev in event_bus.iter():
-                    data = serialize_event(ev)
-                    if data:
-                        await send_json(data)
+                while True:
+                    msg = await cq.get()
+                    await ws.send_json(msg)
             except Exception:
                 pass
 
-        forward_task = asyncio.create_task(forward_events())
-
-        async def process_chat(text: str):
-            nonlocal chat_running
-            try:
-                request_id = await chat_service.submit(text)
-                q = chat_service.events(request_id)
-                while True:
-                    ev = await q.get()
-                    if ev is None:  # 哨兵：请求处理完毕
-                        break
-                    data = serialize_chat_event(ev)
-                    if data:
-                        await send_json(data)
-            finally:
-                chat_running = False
+        send_task = asyncio.create_task(_send_to_client())
 
         try:
             async for raw in ws.iter_text():
@@ -241,15 +262,10 @@ def create_app(cwd: str | None = None) -> Any:
                 msg_type = msg.get("type", "")
 
                 if msg_type == "chat":
-                    if chat_running:
-                        await send_json({"type": "error", "message": "已有对话正在处理"})
-                        continue
-                    chat_running = True
-                    asyncio.create_task(process_chat(msg["text"]))
+                    await chat_service.submit(msg["text"])
 
                 elif msg_type == "clear":
                     chat_service.clear()
-                    await send_json({"type": "cleared"})
 
                 elif msg_type == "ask_user_response":
                     ask_user_svc.resolve(
@@ -261,9 +277,10 @@ def create_app(cwd: str | None = None) -> Any:
         except WebSocketDisconnect:
             pass
         finally:
-            forward_task.cancel()
+            client_queues.remove(cq)
+            send_task.cancel()
             try:
-                await forward_task
+                await send_task
             except asyncio.CancelledError:
                 pass
 

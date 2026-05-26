@@ -189,7 +189,7 @@ class MiniCCApp(App):
     @work(exclusive=True, group="chat")
     async def _process_message(self, user_input: str) -> None:
         if self._mode == "client":
-            await self._process_message_client(user_input)
+            await self._client.submit(user_input)
         else:
             await self._process_message_embedded(user_input)
 
@@ -242,54 +242,6 @@ class MiniCCApp(App):
             self._is_processing = False
             self._scroll_chat_end()
 
-    async def _process_message_client(self, user_input: str) -> None:
-        self._is_processing = True
-        streamed_text = ""
-        try:
-            async for event in self._client.send_message(user_input):
-                etype = event.get("type", "")
-                if etype == "text_delta":
-                    streamed_text = event["content"]
-                    self._update_streaming_assistant(streamed_text)
-
-                elif etype == "tool_started":
-                    line = ToolCallLine(event["tool_name"], event.get("args"), status="running")
-                    self._tool_lines[event["tool_call_id"]] = line
-                    self._chat_container().mount(line)
-                    self._ensure_stream_panel_last()
-                    self._scroll_chat_end()
-
-                elif etype == "tool_finished":
-                    line = self._tool_lines.get(event["tool_call_id"])
-                    if line is None:
-                        line = ToolCallLine(event["tool_name"], {}, status="running")
-                        self._tool_lines[event["tool_call_id"]] = line
-                        self._chat_container().mount(line)
-                    line.update_status("completed" if event.get("ok") else "failed")
-                    self._ensure_stream_panel_last()
-                    self._scroll_chat_end()
-
-                elif etype == "done":
-                    if self._streaming_assistant_panel is not None:
-                        self._streaming_assistant_panel.set_content(streamed_text)
-                        self._scroll_chat_end()
-                    else:
-                        self._append_message(streamed_text, role="assistant")
-                    usage = event.get("usage")
-                    if usage:
-                        self._update_tokens(usage)
-
-                elif etype == "error":
-                    msg = event.get("message", "")
-                    if "操作已取消" in msg:
-                        self._append_message("⚠️ 操作已取消", role="system")
-                    else:
-                        self._append_message(f"❌ 错误: {msg}", role="system")
-
-        finally:
-            self._is_processing = False
-            self._scroll_chat_end()
-
     @work(group="startup")
     async def _connect_ws(self) -> None:
         try:
@@ -302,10 +254,68 @@ class MiniCCApp(App):
 
     @work(group="events")
     async def _consume_ws_events(self) -> None:
+        rid_streaming: dict[str, str] = {}  # request_id → accumulated text
         while True:
-            msg = await self._client.ui_events.get()
+            msg = await self._client.stream.get()
             etype = msg.get("type", "")
-            if etype == "todo_updated":
+            rid = msg.get("request_id", "")
+
+            if etype == "request_started":
+                self._append_message(f"处理中... ({rid[:6]}: {msg.get('text', '')[:50]})", role="system")
+                rid_streaming[rid] = ""
+                self._streaming_assistant_panel = None
+
+            elif etype == "text_delta":
+                if rid in rid_streaming:
+                    rid_streaming[rid] = msg["content"]
+                    if self._streaming_assistant_panel is None:
+                        self._streaming_assistant_panel = self._append_message("", role="assistant")
+                    self._streaming_assistant_panel.set_content(msg["content"])
+                    self._scroll_chat_end()
+
+            elif etype == "tool_started":
+                line = ToolCallLine(msg["tool_name"], msg.get("args"), status="running")
+                self._tool_lines[msg["tool_call_id"]] = line
+                self._chat_container().mount(line)
+                self._ensure_stream_panel_last()
+                self._scroll_chat_end()
+
+            elif etype == "tool_finished":
+                line = self._tool_lines.get(msg["tool_call_id"])
+                if line is None:
+                    line = ToolCallLine(msg["tool_name"], {}, status="running")
+                    self._tool_lines[msg["tool_call_id"]] = line
+                    self._chat_container().mount(line)
+                line.update_status("completed" if msg.get("ok") else "failed")
+                self._ensure_stream_panel_last()
+                self._scroll_chat_end()
+
+            elif etype == "done":
+                text = rid_streaming.pop(rid, "")
+                if self._streaming_assistant_panel is not None:
+                    self._streaming_assistant_panel.set_content(text)
+                    self._scroll_chat_end()
+                    self._streaming_assistant_panel = None
+                elif text:
+                    self._append_message(text, role="assistant")
+                usage = msg.get("usage")
+                if usage:
+                    self._update_tokens(usage)
+
+            elif etype == "request_finished":
+                rid_streaming.pop(rid, None)
+                self._streaming_assistant_panel = None
+
+            elif etype == "error":
+                rid_streaming.pop(rid, None)
+                err_msg = msg.get("message", "")
+                if "操作已取消" in err_msg:
+                    self._append_message("⚠️ 操作已取消", role="system")
+                else:
+                    self._append_message(f"❌ 错误: {err_msg}", role="system")
+                self._streaming_assistant_panel = None
+
+            elif etype == "todo_updated":
                 self._handle_todo_dict(msg)
             elif etype == "ask_user_requested":
                 self._handle_ask_user_dict(msg)

@@ -3,7 +3,7 @@ ChatService — 主 Agent 生命周期管理。
 
 拥有 Agent、消息历史、持久化。支持两种使用模式：
 - 直接模式: send_message() → AsyncIterator[ChatEvent]（嵌入式 TUI）
-- 队列模式: submit() + events()（server 模式，所有请求排队顺序执行）
+- 队列模式: submit() 入队 → worker 顺序处理 → 广播事件到所有订阅者
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class ChatService:
         self._store = store or MessageStore()
         self._messages: list[Any] = self._store.load()
         self._request_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-        self._response_queues: dict[str, asyncio.Queue[Any]] = {}
+        self._broadcast: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
 
     @property
@@ -101,27 +101,23 @@ class ChatService:
         await self._request_queue.put((request_id, text))
         return request_id
 
-    def events(self, request_id: str) -> asyncio.Queue[Any]:
-        """获取请求对应的响应队列。消费到 None 哨兵时表示结束。"""
-        q: asyncio.Queue[Any] = asyncio.Queue()
-        self._response_queues[request_id] = q
+    def subscribe(self) -> asyncio.Queue[dict]:
+        """订阅广播事件流。返回的队列会收到所有请求的所有事件。"""
+        q: asyncio.Queue[dict] = asyncio.Queue()
         return q
 
     async def _worker(self) -> None:
-        """后台 worker，从队列取请求、顺序处理。"""
+        """后台 worker，从队列取请求、顺序处理，事件通过 _broadcast 发布。"""
         while True:
             request_id, text = await self._request_queue.get()
-            q = self._response_queues.get(request_id)
+            await self._broadcast.put({"request_id": request_id, "kind": "request_started", "text": text})
             try:
                 async for event in self._process(text):
-                    if q is not None:
-                        await q.put(event)
+                    await self._broadcast.put({"request_id": request_id, "kind": "chat_event", "event": event})
             except Exception:
                 pass
             finally:
-                if q is not None:
-                    await q.put(None)  # 哨兵：请求结束
-                self._response_queues.pop(request_id, None)
+                await self._broadcast.put({"request_id": request_id, "kind": "request_finished"})
 
     # ---- 内部实现 ----
 
