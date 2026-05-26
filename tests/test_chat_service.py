@@ -252,3 +252,83 @@ async def test_messages_property_returns_copy(tmp_path):
     assert len(msgs) == 2
     msgs.pop()
     assert len(svc.messages) == 2  # original unchanged
+
+
+# ---- queue mode tests ----
+
+
+@pytest.mark.asyncio
+async def test_submit_returns_request_id_immediately(tmp_path):
+    events = [
+        AgentRunResultEvent(result=_FakeResult(output="done")),
+    ]
+    agent = FakeAgent(events)
+    svc = ChatService(agent=agent, deps=_make_deps(), store=_make_store(tmp_path))
+
+    rid = await svc.submit("hi")
+    assert len(rid) == 8  # uuid4 hex[:8]
+    assert svc._worker_task is not None
+
+
+@pytest.mark.asyncio
+async def test_submit_then_events_yields_chat_events(tmp_path):
+    events = [
+        PartStartEvent(index=0, part=TextPart(content="Hello")),
+        AgentRunResultEvent(result=_FakeResult(output="Hello")),
+    ]
+    agent = FakeAgent(events)
+    svc = ChatService(agent=agent, deps=_make_deps(), store=_make_store(tmp_path))
+
+    rid = await svc.submit("hi")
+    q = svc.events(rid)
+
+    results = []
+    while True:
+        ev = await q.get()
+        if ev is None:
+            break
+        results.append(ev)
+
+    assert len(results) == 2  # TextDelta + Done
+    assert isinstance(results[0], TextDelta)
+    assert isinstance(results[1], Done)
+
+
+@pytest.mark.asyncio
+async def test_queue_serializes_requests(tmp_path):
+    """两个请求排队，第二个等第一个跑完才开始。"""
+    order: list[str] = []
+
+    class OrderedAgent:
+        def __init__(self, name, delay=0.01):
+            self._name = name
+            self._delay = delay
+
+        async def run_stream_events(self, prompt, deps=None, message_history=None):
+            await asyncio.sleep(self._delay)
+            order.append(self._name)
+            yield AgentRunResultEvent(result=_FakeResult(output=self._name))
+
+    svc = ChatService(agent=OrderedAgent("tmp"), deps=_make_deps(), store=_make_store(tmp_path))
+    # Replace agent to avoid using the temp one
+    svc._agent = OrderedAgent("a", delay=0.05)
+
+    rid1 = await svc.submit("first")
+    q1 = svc.events(rid1)
+
+    # Submit second BEFORE first finishes
+    rid2 = await svc.submit("second")
+    q2 = svc.events(rid2)
+
+    # Wait for both
+    async def drain(q):
+        while True:
+            ev = await q.get()
+            if ev is None:
+                return
+
+    await drain(q1)
+    await drain(q2)
+
+    # Must be sequential: a then b
+    assert order == ["a", "a"]

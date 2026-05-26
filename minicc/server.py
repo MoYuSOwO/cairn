@@ -1,7 +1,12 @@
 """
 MiniCC 后端服务 — FastAPI + WebSocket。
 
-启动方式: minicc serve [--port 8080]
+端点:
+  GET  /health   健康检查
+  POST /inject   远程注入（fire-and-forget，立即返回）
+  WS   /ws       双向流式聊天（TUI 客户端使用）
+
+所有请求通过 ChatService 队列顺序执行，避免并发冲突。
 """
 
 from __future__ import annotations
@@ -17,7 +22,6 @@ from .core.chat_events import Done, Error, TextDelta, ToolFinished, ToolStarted
 from .core.config import load_config
 from .core.events import (
     AskUserRequested,
-    AskUserResolved,
     SubAgentCreated,
     SubAgentUpdated,
     TodoUpdated,
@@ -182,43 +186,14 @@ def create_app(cwd: str | None = None) -> Any:
     async def health():
         return {"status": "ok", "model": config.model, "provider": config.provider.value}
 
-    @app.post("/chat")
-    async def chat_http(request: dict):
-        """HTTP 流式聊天端点 (SSE)，适合 curl / 远程工具调用。"""
-        text = request.get("text", "")
-        if not text:
-            return JSONResponse({"error": "text is required"}, status_code=400)
-
-        from starlette.responses import StreamingResponse
-
-        async def event_stream():
-            import json as _json
-            async for chat_event in chat_service.send_message(text):
-                data = serialize_chat_event(chat_event)
-                if data:
-                    yield f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
     @app.post("/inject")
     async def inject(request: dict):
-        """远程工具注入 — 发送消息并返回最终结果。"""
+        """远程注入 — fire-and-forget，立即返回。Agent 通过工具异步响应。"""
         text = request.get("text", "")
         if not text:
             return JSONResponse({"error": "text is required"}, status_code=400)
-        try:
-            output = ""
-            async for ev in chat_service.send_message(text):
-                from minicc.core.chat_events import Done, Error, TextDelta
-                if isinstance(ev, TextDelta):
-                    output = ev.content
-                elif isinstance(ev, Done):
-                    return {"status": "ok", "output": output}
-                elif isinstance(ev, Error):
-                    return JSONResponse({"status": "error", "message": str(ev.exception)}, status_code=500)
-            return {"status": "ok", "output": output}
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
+        request_id = await chat_service.submit(text)
+        return {"status": "ok", "request_id": request_id}
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
@@ -244,8 +219,13 @@ def create_app(cwd: str | None = None) -> Any:
         async def process_chat(text: str):
             nonlocal chat_running
             try:
-                async for chat_event in chat_service.send_message(text):
-                    data = serialize_chat_event(chat_event)
+                request_id = await chat_service.submit(text)
+                q = chat_service.events(request_id)
+                while True:
+                    ev = await q.get()
+                    if ev is None:  # 哨兵：请求处理完毕
+                        break
+                    data = serialize_chat_event(ev)
                     if data:
                         await send_json(data)
             finally:

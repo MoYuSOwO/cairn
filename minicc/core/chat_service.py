@@ -1,14 +1,18 @@
 """
 ChatService — 主 Agent 生命周期管理。
 
-拥有 Agent、消息历史、持久化。TUI 通过 send_message() 的 async iterator 消费流式事件。
+拥有 Agent、消息历史、持久化。支持两种使用模式：
+- 直接模式: send_message() → AsyncIterator[ChatEvent]（嵌入式 TUI）
+- 队列模式: submit() + events()（server 模式，所有请求排队顺序执行）
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 import traceback
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 from pydantic_ai import AgentRunResultEvent
 from pydantic_ai.messages import (
@@ -58,8 +62,8 @@ def _tool_result_to_status(result_part: ToolReturnPart | RetryPromptPart) -> tup
 class ChatService:
     """主 Agent 对话服务。
 
-    拥有 Agent 实例和消息历史，提供流式对话接口。
-    消息每轮成功后自动持久化，重启后自动恢复。
+    - 直接模式：send_message(text) → async iterator，嵌入式 TUI 使用
+    - 队列模式：submit(text) + events(rid)，server 使用，保证顺序执行
     """
 
     def __init__(
@@ -72,16 +76,57 @@ class ChatService:
         self._deps = deps
         self._store = store or MessageStore()
         self._messages: list[Any] = self._store.load()
+        self._request_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        self._response_queues: dict[str, asyncio.Queue[Any]] = {}
+        self._worker_task: asyncio.Task | None = None
 
     @property
     def messages(self) -> list[Any]:
         return list(self._messages)
 
-    async def send_message(self, user_input: str) -> AsyncIterator[Any]:
-        """运行一轮对话，逐个产出 ChatEvent。
+    # ---- 直接模式（嵌入式 TUI）----
 
-        TextDelta / ToolStarted / ToolFinished / Done / Error
-        """
+    async def send_message(self, user_input: str) -> AsyncIterator[Any]:
+        """直接运行对话，返回 ChatEvent 迭代器。会阻塞直到完成。"""
+        async for event in self._process(user_input):
+            yield event
+
+    # ---- 队列模式（server）----
+
+    async def submit(self, text: str) -> str:
+        """提交请求到队列，立即返回 request_id。Agent 顺序处理。"""
+        if self._worker_task is None:
+            self._worker_task = asyncio.create_task(self._worker())
+        request_id = uuid4().hex[:8]
+        await self._request_queue.put((request_id, text))
+        return request_id
+
+    def events(self, request_id: str) -> asyncio.Queue[Any]:
+        """获取请求对应的响应队列。消费到 None 哨兵时表示结束。"""
+        q: asyncio.Queue[Any] = asyncio.Queue()
+        self._response_queues[request_id] = q
+        return q
+
+    async def _worker(self) -> None:
+        """后台 worker，从队列取请求、顺序处理。"""
+        while True:
+            request_id, text = await self._request_queue.get()
+            q = self._response_queues.get(request_id)
+            try:
+                async for event in self._process(text):
+                    if q is not None:
+                        await q.put(event)
+            except Exception:
+                pass
+            finally:
+                if q is not None:
+                    await q.put(None)  # 哨兵：请求结束
+                self._response_queues.pop(request_id, None)
+
+    # ---- 内部实现 ----
+
+    async def _process(self, user_input: str) -> AsyncIterator[Any]:
+        """运行一轮对话，产出 ChatEvent（TextDelta / ToolStarted / ToolFinished / Done / Error）。"""
         streamed_text = ""
         try:
             async for event in self._agent.run_stream_events(
