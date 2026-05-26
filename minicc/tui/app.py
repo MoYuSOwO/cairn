@@ -525,9 +525,12 @@ class MiniCCApp(App):
                 child.remove()
         self._tool_lines.clear()
         self._subagent_lines.clear()
+        turn_start = 0
         for i, msg in enumerate(messages):
             kind = msg.get("kind", "")
             role = "user" if kind == "request" else "assistant"
+            if kind == "request":
+                turn_start = i  # 新轮次起点
             parts = msg.get("parts", [])
             content_parts: list[str] = []
             for p in parts:
@@ -536,7 +539,7 @@ class MiniCCApp(App):
                     content_parts.append(c)
             content = "\n".join(content_parts).strip()
             if content:
-                self._append_message(content, role=role, history_index=i)
+                self._append_message(content, role=role, history_index=turn_start)
 
     def _ensure_stream_panel_last(self) -> None:
         if self._streaming_assistant_panel is None:
