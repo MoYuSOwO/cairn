@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from minicc.core.events import EventBus
+from cairn.core.events import EventBus
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,11 @@
 # v0.3.0 迁移指南（Breaking Change）
 
-v0.3.0 对 MiniCC 做了大规模重构：对外仅保证 **TUI 行为**，原先的编程接口/模块路径不再保证兼容。
+v0.3.0 对 cairn 做了大规模重构：对外仅保证 **TUI 行为**，原先的编程接口/模块路径不再保证兼容。
 
 ## 1. 新的目录结构
 
 ```
-minicc/
+cairn/
 ├── cli.py        # CLI 入口（启动 TUI）
 ├── core/         # 运行时/模型/事件总线/MCP 预加载
 ├── tools/        # 工具实现（按职责拆分）
@@ -22,22 +22,22 @@ minicc/
 启动：
 
 ```bash
-minicc
+cairn
 # 或
-python -m minicc
+python -m cairn
 ```
 
 Textual 开发模式：
 
 ```bash
-uv run textual run --dev minicc.tui.app:MiniCCApp
+uv run textual run --dev cairn.tui.app:cairnApp
 ```
 
 显示完整 traceback：
 
 ```bash
-export MINICC_DEBUG=1
-minicc
+export cairn_DEBUG=1
+cairn
 ```
 
 ## 3. MCP 严格模式（可选）
@@ -45,8 +45,8 @@ minicc
 默认缺少 MCP 依赖/配置错误会告警并降级为“不加载 MCP”。如需严格失败：
 
 ```bash
-export MINICC_MCP_STRICT=1
-minicc
+export cairn_MCP_STRICT=1
+cairn
 ```
 
 ## 4. 常见行为变化

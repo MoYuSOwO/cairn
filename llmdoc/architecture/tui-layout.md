@@ -2,14 +2,14 @@
 
 ## 1. Identity
 
-- **What it is:** MiniCC 终端用户界面的整体布局和组件组织
+- **What it is:** cairn 终端用户界面的整体布局和组件组织
 - **Purpose:** 为用户提供清晰、高效的聊天交互界面
 
 ## 2. 整体布局
 
 ```
 ┌──────────────────────────────────────┐
-│        Header (MiniCC 时钟)          │
+│        Header (cairn 时钟)          │
 ├──────────────────────────────────────┤
 │     chat_container (VerticalScroll)  │
 │  ├─ MessagePanel (用户/助手消息)    │
@@ -35,7 +35,7 @@
 显示应用标题和实时时钟。Textual 内置组件，无需自定义。
 
 ### chat_container (VerticalScroll)
-**文件:** `minicc/tui/app.py` (`VerticalScroll`)
+**文件:** `cairn/tui/app.py` (`VerticalScroll`)
 
 主消息区域，包含：
 - `MessagePanel`: 用户/助手消息（支持 Markdown）
@@ -48,7 +48,7 @@
 用户输入框，提交时触发 `on_input_submitted` 事件。
 
 ### BottomBar
-**文件:** `minicc/tui/widgets.py` (BottomBar 组件)
+**文件:** `cairn/tui/widgets.py` (BottomBar 组件)
 
 分区块显示：
 - `📦 模型`: provider:model
@@ -79,9 +79,9 @@ Input.Submitted
 ```
 
 关键方法：
-- `_process_message()` (`minicc/tui/app.py`): 消息处理入口（含工具事件采集）
-- `_consume_events()` (`minicc/tui/app.py`): 消费事件总线（todo/ask_user/subagent）
-- `_scroll_chat_end()` (`minicc/tui/app.py`): 布局后滚动到底部
+- `_process_message()` (`cairn/tui/app.py`): 消息处理入口（含工具事件采集）
+- `_consume_events()` (`cairn/tui/app.py`): 消费事件总线（todo/ask_user/subagent）
+- `_scroll_chat_end()` (`cairn/tui/app.py`): 布局后滚动到底部
 
 ## 5. 快捷键
 

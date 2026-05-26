@@ -4,10 +4,10 @@
 
 ```bash
 # 使用 uv
-uv pip install minicc
+uv pip install cairn
 
 # 使用 pip
-pip install minicc
+pip install cairn
 ```
 
 ## 配置 API Key
@@ -24,10 +24,10 @@ export OPENAI_API_KEY="sk-xxx"
 
 ```bash
 # 命令行启动
-minicc
+cairn
 
 # 或使用 Python 模块
-python -m minicc
+python -m cairn
 ```
 
 ## 快捷键
@@ -53,7 +53,7 @@ python -m minicc
 
 ## 配置文件
 
-### ~/.minicc/config.json
+### ~/.cairn/config.json
 
 ```json
 {
@@ -71,32 +71,32 @@ python -m minicc
 
 ### MCP 配置（可选）
 
-MiniCC 会在**启动阶段**加载 MCP 服务器，并将其工具注入到 Agent 中（非懒加载）。
+cairn 会在**启动阶段**加载 MCP 服务器，并将其工具注入到 Agent 中（非懒加载）。
 
 如需启用 MCP（连接/启动 MCP servers），请确保安装了可选依赖：
 
 ```bash
 # pip
-pip install "minicc[mcp]"
+pip install "cairn[mcp]"
 
 # uv
-uv pip install "minicc[mcp]"
+uv pip install "cairn[mcp]"
 ```
 
-未安装 MCP 依赖时，MiniCC 会告警并自动降级为“不加载 MCP”，不会影响应用启动。
+未安装 MCP 依赖时，cairn 会告警并自动降级为“不加载 MCP”，不会影响应用启动。
 
 如需在“缺少 MCP 依赖/配置错误”时直接失败（便于 CI 或严格环境），可设置：
 
 ```bash
-export MINICC_MCP_STRICT=1
+export cairn_MCP_STRICT=1
 ```
 
 配置文件位置优先级：
 
-1. 工作目录下的 `.minicc/mcp.json`
-2. 全局 `~/.minicc/mcp.json`
+1. 工作目录下的 `.cairn/mcp.json`
+2. 全局 `~/.cairn/mcp.json`
 
-注意：MiniCC 启动时会基于启动目录（cwd）决定使用哪一份 MCP 配置；如果你在别的目录启动，可能会命中全局配置而非项目配置。
+注意：cairn 启动时会基于启动目录（cwd）决定使用哪一份 MCP 配置；如果你在别的目录启动，可能会命中全局配置而非项目配置。
 
 配置格式与 pydantic-ai 的 MCP 配置一致，例如：
 
@@ -120,19 +120,19 @@ export MINICC_MCP_STRICT=1
 - `url` 表示通过 HTTP/SSE/Streamable HTTP 连接的 MCP server。
 - 支持 `${ENV_VAR}` 或 `${ENV_VAR:-default}` 形式的环境变量展开。
 
-### ~/.minicc/AGENTS.md
+### ~/.cairn/AGENTS.md
 
 自定义系统提示词，可以修改 Agent 的行为和工具使用策略。
 
 ## 编程接口（内部/不稳定）
 
-v0.3.0 起 MiniCC 对外仅保证 TUI 行为稳定；如需在代码中复用，请直接使用 `pydantic-ai`，或阅读 `minicc/core/runtime.py` 的组装方式自行集成。
+v0.3.0 起 cairn 对外仅保证 TUI 行为稳定；如需在代码中复用，请直接使用 `pydantic-ai`，或阅读 `cairn/core/runtime.py` 的组装方式自行集成。
 
 ## 开发调试
 
 ```bash
 # 使用 textual 开发模式
-uv run textual run --dev minicc.tui.app:MiniCCApp
+uv run textual run --dev cairn.tui.app:cairnApp
 
 # 在另一个终端查看日志
 textual console
@@ -140,9 +140,9 @@ textual console
 
 ### 错误堆栈显示（Debug）
 
-默认情况下，MiniCC 只在界面中显示简短错误信息。若你需要在 TUI 中直接看到完整 traceback，可设置：
+默认情况下，cairn 只在界面中显示简短错误信息。若你需要在 TUI 中直接看到完整 traceback，可设置：
 
 ```bash
-export MINICC_DEBUG=1
-minicc
+export cairn_DEBUG=1
+cairn
 ```

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from minicc.core.persistence import HISTORY_FILE, MessageStore
+from cairn.core.persistence import HISTORY_FILE, MessageStore
 
 
 class TestMessageStore:

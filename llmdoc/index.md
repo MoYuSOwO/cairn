@@ -1,4 +1,4 @@
-# MiniCC 文档索引
+# cairn 文档索引
 
 极简教学版 AI 编程助手，约 1800 行代码实现核心功能（已扩展以对标 Claude Code）。
 
@@ -23,18 +23,18 @@ v0.3.0 迁移说明：
 - **ask_user 稳定性**：工具层改为强校验 + 友好报错（避免 `str has no attribute get`、空选项导致空面板）
 - **提示词约束**：系统提示词明确 `ask_user` 每题必须提供 `header/question/options`
 - **问答面板**：自定义项显示为“其他（自定义输入）”，减少误解
-- 相关：`minicc/tools/interact.py`、`minicc/prompts/system.md`、`minicc/tui/ask_user_panel.py`、`tests/test_ask_user_normalize.py`
+- 相关：`cairn/tools/interact.py`、`cairn/prompts/system.md`、`cairn/tui/ask_user_panel.py`、`tests/test_ask_user_normalize.py`
 
 ### MCP 载入与工具提示完善 (v0.2.3 - 2025-12-13)
 - **MCP 载入**: 改为启动时静态加载 toolsets（避免 DynamicToolset 引发 anyio CancelScope 跨 Task 报错）
-- **可选依赖**: 增加 `minicc[mcp]` 安装方式
+- **可选依赖**: 增加 `cairn[mcp]` 安装方式
 - **UI 提示**: MCP 工具调用也会显示 `🔧` 工具调用行
-- **调试**: 增加 `MINICC_DEBUG=1` 在 TUI 显示完整 traceback
+- **调试**: 增加 `cairn_DEBUG=1` 在 TUI 显示完整 traceback
 
 ### 大重构：事件驱动 UI + 模块拆分 (v0.3.0 - 2025-12-14)
 - **事件通知更新**：TUI 直接消费 `agent.run_stream_events()` 的工具事件，ToolCallLine 支持 running/completed/failed 状态
-- **结构重整**：新增 `minicc/core`、`minicc/tools`、`minicc/tui` 三层，移除旧的单文件堆叠实现
-- **MCP 预加载**：启动阶段加载并按配置路径缓存（可选 `MINICC_MCP_STRICT=1` 严格模式）
+- **结构重整**：新增 `cairn/core`、`cairn/tools`、`cairn/tui` 三层，移除旧的单文件堆叠实现
+- **MCP 预加载**：启动阶段加载并按配置路径缓存（可选 `cairn_MCP_STRICT=1` 严格模式）
 - **子任务等待**：`task(wait=True)` 默认等待子代理完成并返回结果；`wait_subagents` 可等待所有后台子任务
 - **流式滚动**：助手流式输出实时更新，并在布局刷新后自动滚动到底部
 
@@ -53,7 +53,7 @@ v0.3.0 迁移说明：
 
 ### Agent-Gear FileSystem 集成 (v0.2 - 2025-11-30)
 - **新增依赖**: agent-gear>=0.1.0 (高性能文件系统操作)
-- **schemas.py 变更**: 新增 `MiniCCDeps.fs` 字段存储 FileSystem 实例
+- **schemas.py 变更**: 新增 `cairnDeps.fs` 字段存储 FileSystem 实例
 - **app.py 集成**:
   - 初始化全局 FileSystem 实例：`self._fs = FileSystem(cwd, auto_watch=True)`
   - 添加 `_wait_fs_ready()` 后台方法等待索引就绪
@@ -87,7 +87,7 @@ v0.3.0 迁移说明：
   - 新增 PromptCache (Anthropic 缓存配置)
   - 新增 TodoItem, BackgroundShell 模型
   - 扩展 AgentTask: 添加 description, subagent_type
-  - 扩展 MiniCCDeps: 添加 todos, background_shells, on_todo_update
+  - 扩展 cairnDeps: 添加 todos, background_shells, on_todo_update
 - **UI 新增**: TodoDisplay 组件 (任务列表显示)
 - 详见：
   - [/llmdoc/overview/project.md](./overview/project.md) - 核心能力更新
@@ -103,7 +103,7 @@ v0.3.0 迁移说明：
 ## 核心模块
 
 ```
-minicc/
+cairn/
 ├── cli.py       # CLI 入口（启动 TUI）
 ├── core/        # 运行时/模型/事件总线/MCP 预加载
 ├── tools/       # 工具实现（按职责拆分）

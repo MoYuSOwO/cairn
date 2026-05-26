@@ -12,7 +12,7 @@ class Provider(str, Enum):
 
 ## Config
 
-应用配置结构，存储在 ~/.minicc/config.json
+应用配置结构，存储在 ~/.cairn/config.json
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -22,7 +22,7 @@ class Provider(str, Enum):
 | base_url | Optional[str] | None | 自定义 API 端点（可选） |
 | prompt_cache | PromptCache | {} | Anthropic Prompt Cache 配置 |
 
-> v0.3.0 模型定义位置：`minicc/core/models.py`
+> v0.3.0 模型定义位置：`cairn/core/models.py`
 
 ## ToolResult
 
@@ -63,9 +63,9 @@ Diff 行数据。
 | content | str | 行内容 |
 | line_no | Optional[int] | 行号 |
 
-## MiniCCDeps（依赖注入容器）
+## cairnDeps（依赖注入容器）
 
-`MiniCCDeps` 由运行时组装（见 `minicc/core/runtime.py`），关键字段：
+`cairnDeps` 由运行时组装（见 `cairn/core/runtime.py`），关键字段：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from minicc.tools.interact import _validate_and_normalize_ask_user_questions
+from cairn.tools.interact import _validate_and_normalize_ask_user_questions
 
 
 def test_validate_rejects_list_of_strings():

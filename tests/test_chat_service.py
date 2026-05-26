@@ -19,15 +19,15 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from minicc.core.chat_events import Done, Error, TextDelta, ToolFinished, ToolStarted
-from minicc.core.chat_service import ChatService
-from minicc.core.config import load_config
-from minicc.core.models import Config, MiniCCDeps, Provider, UserCancelledError
-from minicc.core.persistence import MessageStore
+from cairn.core.chat_events import Done, Error, TextDelta, ToolFinished, ToolStarted
+from cairn.core.chat_service import ChatService
+from cairn.core.config import load_config
+from cairn.core.models import Config, cairnDeps, Provider, UserCancelledError
+from cairn.core.persistence import MessageStore
 
 
-def _make_deps() -> MiniCCDeps:
-    return MiniCCDeps(config=Config(provider=Provider.ANTHROPIC, model="test-model", api_key="test-key"), cwd="/tmp/test", fs=None)
+def _make_deps() -> cairnDeps:
+    return cairnDeps(config=Config(provider=Provider.ANTHROPIC, model="test-model", api_key="test-key"), cwd="/tmp/test", fs=None)
 
 
 def _make_store(tmp_path):

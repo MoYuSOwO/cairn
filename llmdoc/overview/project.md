@@ -1,4 +1,4 @@
-# MiniCC 项目概述
+# cairn 项目概述
 
 ## 项目目标
 
@@ -21,7 +21,7 @@
 - **用户交互**: ask_user (TUI 面板选择题/多选题)
 
 ### 提示词 (Prompt)
-- 系统提示词: ~/.minicc/AGENTS.md
+- 系统提示词: ~/.cairn/AGENTS.md
 - 工具描述: 从函数 docstring 自动提取
 
 ### 子代理 (SubAgent)
@@ -47,5 +47,5 @@
 
 ## v0.3.0 架构变化（概要）
 
-- **结构拆分**：`minicc/core`（运行时/模型/事件/MCP）、`minicc/tools`（工具实现）、`minicc/tui`（界面）
-- **MCP 预加载**：启动阶段加载并缓存 toolsets（避免子代理重复加载）；可用 `MINICC_MCP_STRICT=1` 强制失败
+- **结构拆分**：`cairn/core`（运行时/模型/事件/MCP）、`cairn/tools`（工具实现）、`cairn/tui`（界面）
+- **MCP 预加载**：启动阶段加载并缓存 toolsets（避免子代理重复加载）；可用 `cairn_MCP_STRICT=1` 强制失败

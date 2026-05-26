@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from minicc.core.events import EventBus
-from minicc.core.models import Config, MiniCCDeps, Provider
+from cairn.core.events import EventBus
+from cairn.core.models import Config, cairnDeps, Provider
 
 
 @pytest.fixture
@@ -17,6 +17,6 @@ def config() -> Config:
 
 
 @pytest.fixture
-def deps(config: Config) -> MiniCCDeps:
-    return MiniCCDeps(config=config, cwd="/tmp/minicc-test", fs=None)
+def deps(config: Config) -> cairnDeps:
+    return cairnDeps(config=config, cwd="/tmp/cairn-test", fs=None)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from textual.app import App, ComposeResult
 
-from minicc.tui.chat_input import ChatInput
+from cairn.tui.chat_input import ChatInput
 
 
 class _ChatInputTestApp(App):
