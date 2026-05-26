@@ -315,6 +315,10 @@ class MiniCCApp(App):
                     self._append_message(f"❌ 错误: {err_msg}", role="system")
                 self._streaming_assistant_panel = None
 
+            elif etype == "history_snapshot":
+                count = msg.get("message_count", 0)
+                self._append_message(f"历史快照 ({count} 条消息)", role="system")
+
             elif etype == "todo_updated":
                 self._handle_todo_dict(msg)
             elif etype == "ask_user_requested":
@@ -454,7 +458,8 @@ class MiniCCApp(App):
             import asyncio
             asyncio.create_task(self._client.clear())
         else:
-            self.runtime.chat_service.clear()
+            import asyncio
+            asyncio.create_task(self.runtime.chat_service.clear())
             self.runtime.deps.todos = []
         self._tool_lines.clear()
         self._subagent_lines.clear()

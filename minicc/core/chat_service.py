@@ -30,7 +30,7 @@ from pydantic_ai.messages import (
 
 from .chat_events import Done, Error, TextDelta, ToolFinished, ToolStarted
 from .models import MiniCCDeps, ToolResult, UserCancelledError
-from .persistence import MessageStore
+from .persistence import MessageStore, _as_json_compatible
 
 
 def _safe_get_args(part: Any) -> dict[str, Any] | None:
@@ -106,6 +106,15 @@ class ChatService:
         q: asyncio.Queue[dict] = asyncio.Queue()
         return q
 
+    async def _publish_snapshot(self) -> None:
+        """广播当前完整消息历史快照。"""
+        data = _as_json_compatible(self._messages)
+        await self._broadcast.put({
+            "kind": "history_snapshot",
+            "message_count": len(self._messages),
+            "messages": data,
+        })
+
     async def _worker(self) -> None:
         """后台 worker，从队列取请求、顺序处理，事件通过 _broadcast 发布。"""
         while True:
@@ -118,6 +127,7 @@ class ChatService:
                 pass
             finally:
                 await self._broadcast.put({"request_id": request_id, "kind": "request_finished"})
+                await self._publish_snapshot()
 
     # ---- 内部实现 ----
 
@@ -177,6 +187,7 @@ class ChatService:
                 traceback.print_exc()
             yield Error(exception=e)
 
-    def clear(self) -> None:
+    async def clear(self) -> None:
         self._messages = []
         self._store.save(self._messages)
+        await self._publish_snapshot()

@@ -216,7 +216,7 @@ async def test_clear_empties_messages_and_persists(tmp_path):
     svc = ChatService(agent=FakeAgent([]), deps=_make_deps(), store=store)
     assert len(svc.messages) == 2
 
-    svc.clear()
+    await svc.clear()
     assert svc.messages == []
     assert store.load() == []
 

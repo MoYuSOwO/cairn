@@ -193,6 +193,12 @@ def create_app(cwd: str | None = None) -> Any:
                     msg = {"type": "request_started", "request_id": rid, "text": wrapped["text"]}
                 elif kind == "request_finished":
                     msg = {"type": "request_finished", "request_id": rid}
+                elif kind == "history_snapshot":
+                    msg = {
+                        "type": "history_snapshot",
+                        "message_count": wrapped["message_count"],
+                        "messages": wrapped["messages"],
+                    }
                 elif kind == "chat_event":
                     data = serialize_chat_event(wrapped["event"])
                     if data is None:
@@ -265,7 +271,7 @@ def create_app(cwd: str | None = None) -> Any:
                     await chat_service.submit(msg["text"])
 
                 elif msg_type == "clear":
-                    chat_service.clear()
+                    await chat_service.clear()
 
                 elif msg_type == "ask_user_response":
                     ask_user_svc.resolve(
