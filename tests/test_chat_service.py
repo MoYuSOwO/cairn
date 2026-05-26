@@ -353,6 +353,28 @@ async def test_rollback_truncates_history(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_rollback_snaps_to_turn_boundary(tmp_path):
+    """点击 AI 消息 (index=3) 应自动捕捉到前一个用户消息 (index=2)。"""
+    store = _make_store(tmp_path)
+    messages = [
+        ModelRequest(parts=[UserPromptPart(content="turn1")]),
+        ModelResponse(parts=[TextPart(content="r1")]),
+        ModelRequest(parts=[UserPromptPart(content="turn2")]),
+        ModelResponse(parts=[TextPart(content="r2")]),
+        ModelRequest(parts=[UserPromptPart(content="turn3")]),
+        ModelResponse(parts=[TextPart(content="r3")]),
+    ]
+    store.save(messages)
+
+    svc = ChatService(agent=FakeAgent([]), deps=_make_deps(), store=store)
+
+    # Click AI message at index 3 → should snap to user message at index 2
+    ok = await svc.rollback_to(3)
+    assert ok is True
+    assert len(svc.messages) == 2  # kept turn1 user+AI only
+
+
+@pytest.mark.asyncio
 async def test_rollback_rejected_when_busy(tmp_path):
     svc = ChatService(agent=FakeAgent([AgentRunResultEvent(result=_FakeResult(output="ok"))]), deps=_make_deps(), store=_make_store(tmp_path))
     svc._busy = True

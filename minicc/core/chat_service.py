@@ -112,10 +112,20 @@ class ChatService:
         return q
 
     async def rollback_to(self, index: int) -> bool:
-        """截断历史到 [:index]。忙碌时拒绝，返回 False。"""
+        """截断历史到指定轮次起点。自动捕捉到最近的前一个用户消息。
+
+        只接受完整轮次（用户消息 → 下一条用户消息之前），不可回滚到工具/AI 消息中间。
+        忙碌时拒绝，返回 False。
+        """
         if self._busy:
             return False
-        self._messages = self._messages[:index]
+        # 捕捉到最近的用户消息（轮次起点）
+        target = 0
+        for i in range(min(index, len(self._messages) - 1), -1, -1):
+            if getattr(self._messages[i], "kind", None) == "request":
+                target = i
+                break
+        self._messages = self._messages[:target]
         self._store.save(self._messages)
         await self._publish_snapshot()
         return True
