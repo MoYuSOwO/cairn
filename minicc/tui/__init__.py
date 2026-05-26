@@ -1,4 +1,4 @@
-from .app import MiniCCApp, main
+from .app import MiniCCApp, run_client, run_embedded
 
-__all__ = ["MiniCCApp", "main"]
+__all__ = ["MiniCCApp", "run_embedded", "run_client"]
 

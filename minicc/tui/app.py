@@ -3,8 +3,9 @@ MiniCC TUI 应用（多行输入 + @ 引用文件）
 
 关键点：
 - 输入使用 TextArea（ChatInput）：Enter 提交；Ctrl+J 换行
-- 工具调用展示：消费 pydantic-ai stream events
-- ask_user/todo/subagent：消费事件总线（core.events.EventBus）
+- 内嵌模式：直接消费 ChatService stream events
+- 远程模式：通过 WebSocket 消费后端事件
+- ask_user/todo/subagent：消费事件总线（内嵌）或 WS 事件（远程）
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from minicc.core.models import UserCancelledError
 from minicc.core.runtime import MiniCCRuntime, build_runtime
 from minicc.tui.ask_user_panel import AskUserPanel
 from minicc.tui.chat_input import ChatInput
+from minicc.tui.client import ChatClient
 from minicc.tui.file_mention_panel import FileMentionPanel
 from minicc.tui.widgets import BottomBar, MessagePanel, SubAgentLine, TodoDisplay, ToolCallLine
 
@@ -47,10 +49,20 @@ class MiniCCApp(App):
         Binding("escape", "cancel", "取消"),
     ]
 
-    def __init__(self, runtime: MiniCCRuntime | None = None):
+    def __init__(self, runtime: MiniCCRuntime | None = None, server_url: str | None = None):
         super().__init__()
-        config = load_config()
-        self.runtime = runtime or build_runtime(config=config, cwd=os.getcwd())
+        self._client: ChatClient | None = None
+        if server_url:
+            self._mode = "client"
+            self._client = ChatClient(server_url)
+            self._cwd = os.getcwd()
+            self._model_info = "remote"
+        else:
+            self._mode = "embedded"
+            config = load_config()
+            self.runtime = runtime or build_runtime(config=config, cwd=os.getcwd())
+            self._cwd = self.runtime.cwd
+            self._model_info = f"{self.runtime.config.provider.value}:{self.runtime.config.model}"
         self._is_processing = False
         self._git_branch = self._get_git_branch()
 
@@ -72,7 +84,7 @@ class MiniCCApp(App):
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 capture_output=True,
                 text=True,
-                cwd=self.runtime.cwd,
+                cwd=self._cwd,
                 timeout=2,
             )
             if result.returncode == 0:
@@ -94,8 +106,8 @@ class MiniCCApp(App):
             show_line_numbers=False,
         )
         yield BottomBar(
-            model=f"{self.runtime.config.provider.value}:{self.runtime.config.model}",
-            cwd=self.runtime.cwd,
+            model=self._model_info,
+            cwd=self._cwd,
             git_branch=self._git_branch,
             id="bottom_bar",
         )
@@ -110,8 +122,11 @@ class MiniCCApp(App):
         self.query_one("#ask_user_container", Container).display = False
         self.query_one("#mention_container", Container).display = False
         self._show_welcome()
-        self._wait_fs_ready()
-        self._consume_events()
+        if self._mode == "embedded":
+            self._wait_fs_ready()
+            self._consume_events()
+        else:
+            self._connect_ws()
 
     @work(thread=True, group="startup")
     def _wait_fs_ready(self) -> None:
@@ -173,6 +188,12 @@ class MiniCCApp(App):
 
     @work(exclusive=True, group="chat")
     async def _process_message(self, user_input: str) -> None:
+        if self._mode == "client":
+            await self._process_message_client(user_input)
+        else:
+            await self._process_message_embedded(user_input)
+
+    async def _process_message_embedded(self, user_input: str) -> None:
         self._is_processing = True
         streamed_text = ""
         try:
@@ -220,6 +241,78 @@ class MiniCCApp(App):
         finally:
             self._is_processing = False
             self._scroll_chat_end()
+
+    async def _process_message_client(self, user_input: str) -> None:
+        self._is_processing = True
+        streamed_text = ""
+        try:
+            async for event in self._client.send_message(user_input):
+                etype = event.get("type", "")
+                if etype == "text_delta":
+                    streamed_text = event["content"]
+                    self._update_streaming_assistant(streamed_text)
+
+                elif etype == "tool_started":
+                    line = ToolCallLine(event["tool_name"], event.get("args"), status="running")
+                    self._tool_lines[event["tool_call_id"]] = line
+                    self._chat_container().mount(line)
+                    self._ensure_stream_panel_last()
+                    self._scroll_chat_end()
+
+                elif etype == "tool_finished":
+                    line = self._tool_lines.get(event["tool_call_id"])
+                    if line is None:
+                        line = ToolCallLine(event["tool_name"], {}, status="running")
+                        self._tool_lines[event["tool_call_id"]] = line
+                        self._chat_container().mount(line)
+                    line.update_status("completed" if event.get("ok") else "failed")
+                    self._ensure_stream_panel_last()
+                    self._scroll_chat_end()
+
+                elif etype == "done":
+                    if self._streaming_assistant_panel is not None:
+                        self._streaming_assistant_panel.set_content(streamed_text)
+                        self._scroll_chat_end()
+                    else:
+                        self._append_message(streamed_text, role="assistant")
+                    usage = event.get("usage")
+                    if usage:
+                        self._update_tokens(usage)
+
+                elif etype == "error":
+                    msg = event.get("message", "")
+                    if "操作已取消" in msg:
+                        self._append_message("⚠️ 操作已取消", role="system")
+                    else:
+                        self._append_message(f"❌ 错误: {msg}", role="system")
+
+        finally:
+            self._is_processing = False
+            self._scroll_chat_end()
+
+    @work(group="startup")
+    async def _connect_ws(self) -> None:
+        try:
+            await self._client.connect()
+        except Exception as e:
+            self._append_message(f"❌ 连接后端失败: {e}", role="system")
+            return
+        self._append_message("已连接到后端", role="system")
+        self._consume_ws_events()
+
+    @work(group="events")
+    async def _consume_ws_events(self) -> None:
+        while True:
+            msg = await self._client.ui_events.get()
+            etype = msg.get("type", "")
+            if etype == "todo_updated":
+                self._handle_todo_dict(msg)
+            elif etype == "ask_user_requested":
+                self._handle_ask_user_dict(msg)
+            elif etype == "subagent_created":
+                self._handle_subagent_created_dict(msg)
+            elif etype == "subagent_updated":
+                self._handle_subagent_updated_dict(msg)
 
     @work(group="events")
     async def _consume_events(self) -> None:
@@ -269,11 +362,19 @@ class MiniCCApp(App):
         self._hide_mention_panel()
 
     def on_ask_user_panel_submitted(self, event: AskUserPanel.Submitted) -> None:
-        self.runtime.deps.ask_user_service.resolve(event.request_id, submitted=True, answers=event.answers)
+        if self._mode == "client":
+            import asyncio
+            asyncio.create_task(self._client.send_ask_user_response(event.request_id, True, event.answers))
+        else:
+            self.runtime.deps.ask_user_service.resolve(event.request_id, submitted=True, answers=event.answers)
         self._hide_ask_panel()
 
     def on_ask_user_panel_cancelled(self, event: AskUserPanel.Cancelled) -> None:
-        self.runtime.deps.ask_user_service.resolve(event.request_id, submitted=False, answers={})
+        if self._mode == "client":
+            import asyncio
+            asyncio.create_task(self._client.send_ask_user_response(event.request_id, False, {}))
+        else:
+            self.runtime.deps.ask_user_service.resolve(event.request_id, submitted=False, answers={})
         self._hide_ask_panel()
 
     def _on_subagent_created(self, ev: SubAgentCreated) -> None:
@@ -293,17 +394,58 @@ class MiniCCApp(App):
         self._ensure_stream_panel_last()
         self._scroll_chat_end()
 
+    # ---- dict-based handlers (WS client mode) ----
+
+    def _handle_todo_dict(self, msg: dict) -> None:
+        todo_display = self.query_one("#todo_display", TodoDisplay)
+        todo_display.update_todos(msg.get("todos", []))
+        todo_display.display = len(msg.get("todos", [])) > 0
+
+    def _handle_ask_user_dict(self, msg: dict) -> None:
+        container = self.query_one("#ask_user_container", Container)
+        container.remove_children()
+        panel = AskUserPanel(msg["request_id"], msg.get("questions", []))
+        self._current_ask_panel = panel
+        container.mount(panel)
+        container.display = True
+        main_input = self.query_one("#input", ChatInput)
+        main_input.disabled = True
+        self.call_later(panel.focus)
+
+    def _handle_subagent_created_dict(self, msg: dict) -> None:
+        line = SubAgentLine(task_id=msg["task_id"], prompt=msg.get("description") or msg.get("prompt", ""), status="pending")
+        self._subagent_lines[msg["task_id"]] = line
+        self._chat_container().mount(line)
+        self._ensure_stream_panel_last()
+        self._scroll_chat_end()
+
+    def _handle_subagent_updated_dict(self, msg: dict) -> None:
+        line = self._subagent_lines.get(msg["task_id"])
+        if line is None:
+            line = SubAgentLine(task_id=msg["task_id"], prompt=msg["task_id"], status=msg.get("status", ""))
+            self._subagent_lines[msg["task_id"]] = line
+            self._chat_container().mount(line)
+        line.update_status(msg.get("status", ""))
+        self._ensure_stream_panel_last()
+        self._scroll_chat_end()
+
     def on_todo_display_closed(self, message: TodoDisplay.Closed) -> None:
         todo_display = self.query_one("#todo_display", TodoDisplay)
         todo_display.update_todos([])
         todo_display.display = False
-        self.runtime.deps.todos = []
+        if self._mode == "embedded":
+            self.runtime.deps.todos = []
 
     def action_clear(self) -> None:
         chat = self._chat_container()
         for child in list(chat.children):
             child.remove()
-        self.runtime.chat_service.clear()
+        if self._mode == "client":
+            import asyncio
+            asyncio.create_task(self._client.clear())
+        else:
+            self.runtime.chat_service.clear()
+            self.runtime.deps.todos = []
         self._tool_lines.clear()
         self._subagent_lines.clear()
         self._streaming_assistant_panel = None
@@ -317,11 +459,14 @@ class MiniCCApp(App):
         todo_display = self.query_one("#todo_display", TodoDisplay)
         todo_display.update_todos([])
         todo_display.display = False
-        self.runtime.deps.todos = []
         self._show_welcome()
 
     def action_quit(self) -> None:
-        self.runtime.close()
+        if self._mode == "client":
+            import asyncio
+            asyncio.create_task(self._client.disconnect())
+        else:
+            self.runtime.close()
         self.exit()
 
     def action_cancel(self) -> None:
@@ -361,8 +506,12 @@ class MiniCCApp(App):
     def _update_tokens(self, usage: Any) -> None:
         try:
             bottom_bar = self.query_one(BottomBar)
-            input_tokens = getattr(usage, "request_tokens", 0) or getattr(usage, "input_tokens", 0)
-            output_tokens = getattr(usage, "response_tokens", 0) or getattr(usage, "output_tokens", 0)
+            if isinstance(usage, dict):
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+            else:
+                input_tokens = getattr(usage, "request_tokens", 0) or getattr(usage, "input_tokens", 0)
+                output_tokens = getattr(usage, "response_tokens", 0) or getattr(usage, "output_tokens", 0)
             bottom_bar.add_tokens(input_tokens, output_tokens)
         except Exception:
             pass
@@ -447,7 +596,7 @@ class MiniCCApp(App):
         self.call_later(input_widget.focus)
 
     def _search_files_for_mention(self, query: str) -> list[str]:
-        fs = getattr(self.runtime, "fs", None)
+        fs = getattr(self.runtime, "fs", None) if self._mode == "embedded" else None
         ignored = {".git", ".venv", "dist", "__pycache__", ".pytest_cache"}
 
         def is_ignored(p: str) -> bool:
@@ -473,7 +622,7 @@ class MiniCCApp(App):
                 if is_ignored(m):
                     continue
                 try:
-                    if not (self.runtime.cwd and os.path.isfile(os.path.join(self.runtime.cwd, m))):
+                    if not (self._cwd and os.path.isfile(os.path.join(self._cwd, m))):
                         continue
                 except Exception:
                     continue
@@ -497,5 +646,9 @@ def _find_at_reference(text: str, cursor_pos: int) -> tuple[int, str] | None:
     return at_pos, query
 
 
-def main() -> None:
+def run_embedded() -> None:
     MiniCCApp().run()
+
+
+def run_client(server_url: str = "ws://127.0.0.1:8720/ws") -> None:
+    MiniCCApp(server_url=server_url).run()
