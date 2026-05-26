@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
-from minicc.core.events import AskUserRequested, EventBus
-from minicc.core.models import Question, QuestionOption, UserCancelledError
-from minicc.core.services.ask_user import AskUserService
+from cairn.core.events import AskUserRequested, EventBus
+from cairn.core.models import Question, QuestionOption, UserCancelledError
+from cairn.core.services.ask_user import AskUserService
 
 
 @pytest.mark.asyncio

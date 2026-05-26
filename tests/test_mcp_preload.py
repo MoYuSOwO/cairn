@@ -7,7 +7,7 @@ import warnings
 
 import pytest
 
-import minicc.core.mcp as mcp
+import cairn.core.mcp as mcp
 
 
 def test_load_mcp_toolsets_no_config_returns_empty(monkeypatch):
@@ -17,7 +17,7 @@ def test_load_mcp_toolsets_no_config_returns_empty(monkeypatch):
 
 
 def test_load_mcp_toolsets_caches_by_config_path(monkeypatch):
-    monkeypatch.setattr(mcp, "find_mcp_config", lambda _: "/tmp/minicc-mcp.json")
+    monkeypatch.setattr(mcp, "find_mcp_config", lambda _: "/tmp/cairn-mcp.json")
     monkeypatch.setattr(mcp, "_CACHE", {})
 
     calls = {"n": 0}
@@ -38,9 +38,9 @@ def test_load_mcp_toolsets_caches_by_config_path(monkeypatch):
 
 
 def test_load_mcp_toolsets_import_error_non_strict_warns_and_returns_empty(monkeypatch):
-    monkeypatch.setattr(mcp, "find_mcp_config", lambda _: "/tmp/minicc-mcp.json")
+    monkeypatch.setattr(mcp, "find_mcp_config", lambda _: "/tmp/cairn-mcp.json")
     monkeypatch.setattr(mcp, "_CACHE", {})
-    monkeypatch.delenv("MINICC_MCP_STRICT", raising=False)
+    monkeypatch.delenv("cairn_MCP_STRICT", raising=False)
     monkeypatch.setitem(sys.modules, "pydantic_ai.mcp", None)
 
     orig_import = builtins.__import__
@@ -60,9 +60,9 @@ def test_load_mcp_toolsets_import_error_non_strict_warns_and_returns_empty(monke
 
 
 def test_load_mcp_toolsets_import_error_strict_raises(monkeypatch):
-    monkeypatch.setattr(mcp, "find_mcp_config", lambda _: "/tmp/minicc-mcp.json")
+    monkeypatch.setattr(mcp, "find_mcp_config", lambda _: "/tmp/cairn-mcp.json")
     monkeypatch.setattr(mcp, "_CACHE", {})
-    monkeypatch.setenv("MINICC_MCP_STRICT", "1")
+    monkeypatch.setenv("cairn_MCP_STRICT", "1")
     monkeypatch.setitem(sys.modules, "pydantic_ai.mcp", None)
 
     orig_import = builtins.__import__

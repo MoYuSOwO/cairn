@@ -2,19 +2,19 @@
 
 ## 概述
 
-MiniCC TUI 首页进行了重大重构，优化了界面布局和组件交互。重构移除了侧边栏，引入了可折叠面板和底边栏，创建了更清晰、信息密度更高的聊天界面。
+cairn TUI 首页进行了重大重构，优化了界面布局和组件交互。重构移除了侧边栏，引入了可折叠面板和底边栏，创建了更清晰、信息密度更高的聊天界面。
 
 **版本:** v1.0（历史）
 **日期:** 2025-11-27
-**影响（当时）:** minicc/app.py、minicc/ui/widgets.py、minicc/ui/__init__.py（这些路径在 v0.3.0 已移除）
+**影响（当时）:** cairn/app.py、cairn/ui/widgets.py、cairn/ui/__init__.py（这些路径在 v0.3.0 已移除）
 
-> 注意：本文件中 v1.0 的“代码路径/实现细节”仅供历史回溯；当前实现以 `minicc/tui/*` 与 `llmdoc/architecture/tui-layout.md` 为准。
+> 注意：本文件中 v1.0 的“代码路径/实现细节”仅供历史回溯；当前实现以 `cairn/tui/*` 与 `llmdoc/architecture/tui-layout.md` 为准。
 
 ## v0.3.0 补充：事件驱动 UI（当前）
 
 v0.3.0 做了进一步的大重构：
-- TUI 代码迁移到 `minicc/tui/*`
-- tools 按职责拆分到 `minicc/tools/*`
+- TUI 代码迁移到 `cairn/tui/*`
+- tools 按职责拆分到 `cairn/tools/*`
 - UI 不再依赖 “tools 内部回调”，而是直接消费 `agent.run_stream_events()` 的工具调用事件
 - 底边栏 token 图标改为 `↑/↓`（避免部分终端对 emoji 宽度支持不佳导致显示方块）
 - 流式输出改为实时更新 MessagePanel，并在布局刷新后滚动到底部
@@ -31,7 +31,7 @@ v0.3.0 做了进一步的大重构：
 ## 新增的内容
 
 ### 1. BottomBar 组件
-**文件:** `minicc/ui/widgets.py:191-230`
+**文件:** `cairn/ui/widgets.py:191-230`
 
 分区块显示关键上下文信息，恒定显示在底部：
 - `📦 模型`: provider:model (如 `anthropic:claude-sonnet-4`)
@@ -42,7 +42,7 @@ v0.3.0 做了进一步的大重构：
 **特点:** 恒定显示，实时更新，无需折叠。
 
 ### 2. ToolCallLine 组件
-**文件:** `minicc/ui/widgets.py:44-85`
+**文件:** `cairn/ui/widgets.py:44-85`
 
 工具调用单行显示，简洁紧凑的格式：
 - **格式:** `🔧 {工具名} ({参数摘要}) {状态图标}`
@@ -52,7 +52,7 @@ v0.3.0 做了进一步的大重构：
 **设计:** 相比原 CollapsibleToolPanel，不可折叠，一行显示完整信息，减少视觉噪音。
 
 ### 3. SubAgentLine 组件
-**文件:** `minicc/ui/widgets.py:87-127`
+**文件:** `cairn/ui/widgets.py:87-127`
 
 SubAgent 任务单行显示，简洁紧凑的格式：
 - **格式:** `🤖 {prompt摘要} {状态图标}`
@@ -89,7 +89,7 @@ Footer
 
 ## 代码变更
 
-### minicc/app.py (242 行)
+### cairn/app.py (242 行)
 
 **compose() 方法 (行 82-93)**
 - 移除 Horizontal 容器和 side_panel
@@ -106,7 +106,7 @@ Footer
 - 从 AgentRunResultEvent.result.usage() 提取 token（**bug fix: usage 是方法**）
 - 调用 BottomBar.add_tokens() 更新 token 计数
 
-### minicc/ui/widgets.py (230 行，精简 -204 行)
+### cairn/ui/widgets.py (230 行，精简 -204 行)
 
 **新增组件:**
 - `ToolCallLine` (行 44-85): 工具调用单行显示
@@ -124,13 +124,13 @@ Footer
 - `UsageDisplay` → 功能集成到 BottomBar
 - `StatusBar` → 功能已弃用
 
-### minicc/ui/__init__.py
+### cairn/ui/__init__.py
 
 导出更新：
 - 移除：ToolCallPanel, CollapsibleToolPanel, SubAgentPanel, UsageDisplay, StatusBar
 - 新增：ToolCallLine, SubAgentLine, BottomBar
 
-### minicc/schemas.py (128 行，精简 -36 行)
+### cairn/schemas.py (128 行，精简 -36 行)
 
 **整理导入顺序:**
 - 标准库 → 第三方库 → 本地模块
@@ -140,7 +140,7 @@ Footer
 - `Provider`: LLM 提供商枚举
 - `ToolResult`: 工具执行结果
 - `DiffLine`: Diff 行信息
-- `MiniCCDeps`: Agent 依赖注入容器
+- `cairnDeps`: Agent 依赖注入容器
 
 **已移除的未使用类:**
 - `FileOperation`

@@ -6,8 +6,8 @@
 
 当前默认测试**不覆盖**以下内容：
 
-- 文件写入/编辑工具（`minicc/tools/file.py`）
-- 文件搜索工具（`minicc/tools/search.py`）
+- 文件写入/编辑工具（`cairn/tools/file.py`）
+- 文件搜索工具（`cairn/tools/search.py`）
 
 原因：这些能力通常依赖本机文件系统状态与外部命令（ripgrep/agent-gear 索引），更适合在集成测试或手工验证中覆盖。
 

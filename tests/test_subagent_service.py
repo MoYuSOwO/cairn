@@ -5,9 +5,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from minicc.core.events import EventBus, SubAgentCreated, SubAgentUpdated
-from minicc.core.models import Config, MiniCCDeps, Provider
-from minicc.core.services.subagents import SubAgentService
+from cairn.core.events import EventBus, SubAgentCreated, SubAgentUpdated
+from cairn.core.models import Config, cairnDeps, Provider
+from cairn.core.services.subagents import SubAgentService
 
 
 @dataclass
@@ -26,9 +26,9 @@ class _DummyAgent:
         return _DummyResult(output=f"{self._output}:{prompt}")
 
 
-def _make_deps() -> MiniCCDeps:
+def _make_deps() -> cairnDeps:
     cfg = Config(provider=Provider.ANTHROPIC, model="test-model", api_key="test-key")
-    return MiniCCDeps(config=cfg, cwd="/tmp/minicc-test", fs=None)
+    return cairnDeps(config=cfg, cwd="/tmp/cairn-test", fs=None)
 
 
 @pytest.mark.asyncio

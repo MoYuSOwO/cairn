@@ -1,4 +1,4 @@
-# MiniCC
+# cairn
 
 极简教学版 AI 编程助手（TUI），参考 Claude Code 的交互形态，用更少的代码把核心机制讲清楚：工具调用、事件驱动 UI、子代理与 MCP。
 
@@ -23,7 +23,7 @@
 
 - **启动阶段预加载** MCP servers 与 toolsets（不再运行中懒加载）
 - toolsets 会注入主 Agent 与子代理（避免每次创建重复加载）
-- 缺少可选依赖时默认降级为空；可用 `MINICC_MCP_STRICT=1` 强制启动失败（适合 CI/严格环境）
+- 缺少可选依赖时默认降级为空；可用 `cairn_MCP_STRICT=1` 强制启动失败（适合 CI/严格环境）
 
 ### TUI 体验（Textual）
 
@@ -39,10 +39,10 @@
 
 ```bash
 # uv
-uv pip install minicc
+uv pip install cairn
 
 # pip
-pip install minicc
+pip install cairn
 ```
 
 ### 配置 API Key
@@ -56,20 +56,20 @@ export OPENAI_API_KEY="sk-xxx"
 ### 启动
 
 ```bash
-minicc
+cairn
 # 或
-python -m minicc
+python -m cairn
 ```
 
 也可以直接运行（无需手动安装）：
 
 ```bash
-uvx minicc
+uvx cairn
 ```
 
 ## 配置
 
-### `~/.minicc/config.json`
+### `~/.cairn/config.json`
 
 ```json
 {
@@ -89,26 +89,26 @@ uvx minicc
 
 配置文件位置优先级：
 
-1. 工作目录下的 `.minicc/mcp.json`
-2. 全局 `~/.minicc/mcp.json`
+1. 工作目录下的 `.cairn/mcp.json`
+2. 全局 `~/.cairn/mcp.json`
 
 启用 MCP 需要安装可选依赖：
 
 ```bash
-pip install "minicc[mcp]"
+pip install "cairn[mcp]"
 # 或
-uv pip install "minicc[mcp]"
+uv pip install "cairn[mcp]"
 ```
 
 严格模式（配置错误/缺依赖时直接失败）：
 
 ```bash
-export MINICC_MCP_STRICT=1
+export cairn_MCP_STRICT=1
 ```
 
 ### 系统提示词
 
-`~/.minicc/AGENTS.md`：自定义系统提示词（建议写清“可选方案/等待子代理/何时 ask_user”）。
+`~/.cairn/AGENTS.md`：自定义系统提示词（建议写清“可选方案/等待子代理/何时 ask_user”）。
 
 ## 快捷键
 
@@ -123,7 +123,7 @@ export MINICC_MCP_STRICT=1
 ## 项目结构（v0.3.x）
 
 ```
-minicc/
+cairn/
 ├── cli.py       # 入口（仅启动 TUI）
 ├── core/        # 运行时/模型/事件总线/MCP 预加载
 ├── tools/       # 工具实现（按职责拆分）
@@ -133,16 +133,16 @@ minicc/
 ## 开发
 
 ```bash
-git clone https://github.com/TokenRollAI/minicc.git
-cd minicc
+git clone https://github.com/TokenRollAI/cairn.git
+cd cairn
 uv sync
-uv run minicc
+uv run cairn
 ```
 
 Textual 开发模式：
 
 ```bash
-uv run textual run --dev minicc.tui.app:MiniCCApp
+uv run textual run --dev cairn.tui.app:cairnApp
 textual console
 ```
 
