@@ -20,14 +20,34 @@ export ANTHROPIC_API_KEY="sk-ant-xxx"
 export OPENAI_API_KEY="sk-xxx"
 ```
 
+或者编辑 `~/.cairn/config.json` 中的 `api_key` 字段。
+
 ## 启动应用
 
 ```bash
-# 命令行启动
+# 模式 1：内嵌模式（单进程 TUI，最简单）
 cairn
 
-# 或使用 Python 模块
-python -m cairn
+# 模式 2：启动后端服务（默认端口 8720）
+cairn serve --port 8720
+
+# 模式 3：TUI 客户端（连接后端）
+cairn tui --url ws://127.0.0.1:8720/ws
+```
+
+### 前后端分离（可选）
+
+```bash
+# 安装 server 依赖
+pip install "cairn[server]"
+
+# 终端 1：启动后端
+cairn serve
+
+# 终端 2：启动 TUI 客户端
+cairn tui
+
+# 支持多客户端同时连接，所有事件广播可见
 ```
 
 ## 快捷键
@@ -35,21 +55,25 @@ python -m cairn
 | 快捷键 | 功能 |
 |--------|------|
 | Enter | 发送消息 |
-| Ctrl+J | 在输入框换行 |
-| Ctrl+C | 退出应用 |
+| Ctrl+J | 输入框换行 |
+| Ctrl+C | 退出 |
 | Ctrl+L | 清屏 |
 | Escape | 取消当前操作 |
 
+## 历史回滚
+
+点击聊天窗口中的任意消息 → 输入框自动预填该消息的原文 → 后台将对话历史截断到该轮起点 → 你可以编辑文本后重新发送。
+
+- 回滚按"轮次"截断：一轮 = 用户消息到下一个用户消息之前
+- Agent 正在处理时无法回滚（被拒绝）
+- 回滚后所有已连接的客户端显示同步更新
+
 ## 输入框 @ 引用文件
 
-在输入框中输入 `@` + 文件名片段可触发候选列表，用于快速插入项目内文件路径：
-
+输入 `@` + 文件名片段触发候选列表：
 - `↑/↓`：选择候选
-- `Enter` / `Tab`：插入选中文件
-- `Esc`：关闭候选列表
-
-说明：
-- 为避免列出全量文件，`@` 后至少输入 1 个字符才会出现候选。
+- `Enter` / `Tab`：插入路径
+- `Esc`：关闭候选
 
 ## 配置文件
 
@@ -71,34 +95,13 @@ python -m cairn
 
 ### MCP 配置（可选）
 
-cairn 会在**启动阶段**加载 MCP 服务器，并将其工具注入到 Agent 中（非懒加载）。
-
-如需启用 MCP（连接/启动 MCP servers），请确保安装了可选依赖：
-
 ```bash
-# pip
 pip install "cairn[mcp]"
-
-# uv
-uv pip install "cairn[mcp]"
-```
-
-未安装 MCP 依赖时，cairn 会告警并自动降级为“不加载 MCP”，不会影响应用启动。
-
-如需在“缺少 MCP 依赖/配置错误”时直接失败（便于 CI 或严格环境），可设置：
-
-```bash
-export cairn_MCP_STRICT=1
 ```
 
 配置文件位置优先级：
-
 1. 工作目录下的 `.cairn/mcp.json`
 2. 全局 `~/.cairn/mcp.json`
-
-注意：cairn 启动时会基于启动目录（cwd）决定使用哪一份 MCP 配置；如果你在别的目录启动，可能会命中全局配置而非项目配置。
-
-配置格式与 pydantic-ai 的 MCP 配置一致，例如：
 
 ```json
 {
@@ -114,33 +117,41 @@ export cairn_MCP_STRICT=1
 }
 ```
 
-其中：
-
-- `command`/`args` 表示通过 stdio 启动的 MCP server。
-- `url` 表示通过 HTTP/SSE/Streamable HTTP 连接的 MCP server。
-- 支持 `${ENV_VAR}` 或 `${ENV_VAR:-default}` 形式的环境变量展开。
-
 ### ~/.cairn/AGENTS.md
 
 自定义系统提示词，可以修改 Agent 的行为和工具使用策略。
 
-## 编程接口（内部/不稳定）
+## HTTP API（server 模式）
 
-v0.3.0 起 cairn 对外仅保证 TUI 行为稳定；如需在代码中复用，请直接使用 `pydantic-ai`，或阅读 `cairn/core/runtime.py` 的组装方式自行集成。
+### GET /health
+健康检查。
+
+```bash
+curl http://127.0.0.1:8720/health
+# {"status": "ok", "model": "claude-sonnet-4-20250514", "provider": "anthropic"}
+```
+
+### POST /inject
+Fire-and-forget 消息注入。不返回 LLM 结果，事件通过 WebSocket 推送。
+
+```bash
+curl -X POST http://127.0.0.1:8720/inject \
+  -H "Content-Type: application/json" \
+  -d '{"text": "hello"}'
+# {"status": "ok", "request_id": "c1c2de0f"}
+```
 
 ## 开发调试
 
 ```bash
 # 使用 textual 开发模式
-uv run textual run --dev cairn.tui.app:cairnApp
+uv run textual run --dev cairn.tui.app:CairnApp
 
 # 在另一个终端查看日志
 textual console
 ```
 
-### 错误堆栈显示（Debug）
-
-默认情况下，cairn 只在界面中显示简短错误信息。若你需要在 TUI 中直接看到完整 traceback，可设置：
+### 错误堆栈显示
 
 ```bash
 export cairn_DEBUG=1

@@ -1,9 +1,12 @@
 # TUI 布局架构
 
-## 1. Identity
+## 1. 概述
 
-- **What it is:** cairn 终端用户界面的整体布局和组件组织
-- **Purpose:** 为用户提供清晰、高效的聊天交互界面
+cairn TUI 支持两种运行模式：
+- **嵌入式**：TUI 直接调用 `ChatService.send_message()`，单进程
+- **客户端**：TUI 通过 WebSocket 连接后端，事件从统一 `stream` 队列消费
+
+两种模式下 UI 布局和组件一致，区别只在消息处理链。
 
 ## 2. 整体布局
 
@@ -31,81 +34,87 @@
 
 ## 3. 核心组件
 
-### Header
-显示应用标题和实时时钟。Textual 内置组件，无需自定义。
+### MessagePanel
+**文件:** `cairn/tui/widgets.py`
+
+消息面板，支持 Markdown 渲染。新增字段：
+- `history_index`：该消息的轮次起点索引（点击回滚时使用）
+- `on_click`：如果有 `history_index >= 0`，发送 `RollbackRequested` 消息
 
 ### chat_container (VerticalScroll)
-**文件:** `cairn/tui/app.py` (`VerticalScroll`)
+**文件:** `cairn/tui/app.py`
 
-主消息区域，包含：
-- `MessagePanel`: 用户/助手消息（支持 Markdown）
-- `ToolCallLine`: 工具调用单行显示（`🔧 name (param) 🔄/✅/❌`）
-- `SubAgentLine`: SubAgent 任务单行显示（`🤖 prompt ⏳/🔄/✅/❌`）
-
-消息自动滚动到最新。滚动使用 `call_after_refresh(scroll_end)`，避免“先滚动后布局”导致看不到最后一行。
+主消息区域，包含用户/助手消息、工具调用行、子代理行。消息自动滚动到最新。
 
 ### Input
-用户输入框，提交时触发 `on_input_submitted` 事件。
+用户输入框，提交时触发消息处理。
 
 ### BottomBar
-**文件:** `cairn/tui/widgets.py` (BottomBar 组件)
-
-分区块显示：
-- `📦 模型`: provider:model
-- `📁 目录`: 当前 cwd
-- `🌿 分支`: git 分支名
-- `↑↓ Token`: 输入/输出 token 数（使用通用字符，避免终端 emoji 宽度问题）
-
-实时更新，不可折叠。
-
-### Footer
-显示快捷键列表。Textual 内置组件。
+分区块显示：📦 模型 / 📁 目录 / 🌿 分支 / ↑↓ Token。实时更新，不可折叠。
 
 ## 4. 消息流处理
 
-消息处理链：
+### 嵌入式模式
+
 ```
 Input.Submitted
-  → _process_message(user_input)
-    → agent.run_stream_events() [异步流处理]
-      → PartStartEvent → 开始流式输出
-      → PartDeltaEvent → 累积 text delta
-      → Function/Builtin ToolCallEvent → 生成 ToolCallLine(running)
-      → Function/Builtin ToolResultEvent → 更新 ToolCallLine(completed/failed)
-      → 最终事件 (AgentRunResultEvent)
-         → _update_tokens() [更新 BottomBar token]
-         → 结束流式输出并固化 MessagePanel
-  → 布局刷新后滚动到底部
+  → _process_message_embedded(user_input)
+    → chat_service.send_message(text)
+      → async for event → TextDelta / ToolStarted / ToolFinished / Done / Error
+        → 实时渲染到 chat_container
+      → 布局刷新后滚动到底部
 ```
 
-关键方法：
-- `_process_message()` (`cairn/tui/app.py`): 消息处理入口（含工具事件采集）
-- `_consume_events()` (`cairn/tui/app.py`): 消费事件总线（todo/ask_user/subagent）
-- `_scroll_chat_end()` (`cairn/tui/app.py`): 布局后滚动到底部
+### 客户端模式
+
+```
+Input.Submitted
+  → client.submit(user_input)  // fire-and-forget via WS
+  → 主循环 _consume_ws_events()
+    → await client.stream.get()
+      → request_started: 创建流式追踪
+      → text_delta: 更新 MessagePanel (per request_id)
+      → tool_started / tool_finished: mount / update ToolCallLine
+      → done: 固化 MessagePanel, 更新 tokens
+      → error: 显示错误
+      → request_finished: 清理追踪
+      → history_snapshot: _rebuild_from_snapshot()
+      → todo_updated / ask_user_requested / subagent_*: 委托 handler
+```
+
+### 历史回滚流程
+
+```
+点击 MessagePanel (history_index >= 0)
+  → post_message(RollbackRequested(index, content))
+  → on_message_panel_rollback_requested()
+    → 预填输入框 (content)
+    → 聚焦输入框
+    → 嵌入式: await chat_service.rollback_to(index)
+    → 客户端: await client.rollback_to(index)
+  → history_snapshot 抵达
+    → _rebuild_from_snapshot(messages)
+    → 清空 chat_container
+    → 按 messages 重建 MessagePanel（带 history_index=轮次起点）
+```
 
 ## 5. 快捷键
 
 | 快捷键 | 功能 |
 |--------|------|
-| Ctrl+C | 退出应用 |
-| Ctrl+L | 清屏并重置 |
+| Enter | 发送消息 |
+| Ctrl+J | 输入框换行 |
+| Ctrl+C | 退出 |
+| Ctrl+L | 清屏 |
 | Escape | 取消当前操作 |
 
 ## 6. 设计演进
 
-### v0.x (初版)
-- 水平布局: chat_container + side_panel
-- 侧边栏显示: StatusBar + info_card + TabbedContent
-- 可折叠面板: CollapsibleToolPanel / SubAgentPanel
+### v0.3.0
+- 纵向布局：Header → chat_container → TodoDisplay → ask_user_container → Input → BottomBar → Footer
+- 事件驱动：工具调用行由 stream events 直接驱动
 
-### v0.3.0 (当前)
-- 纵向布局: Header → chat_container → TodoDisplay → ask_user_container → Input → BottomBar → Footer
-- **事件驱动**：工具调用行由 stream events 直接驱动，不再依赖 tools 内部回调
-- **流式助手输出**：边生成边更新 MessagePanel，并保持滚动在底部
-- **子任务语义**：`task(wait=True)` 默认等待并返回结果；可并行启动后 `wait_subagents` 汇总等待
-
-### 设计优势
-- **视觉清洁:** 移除冗余信息和可折叠交互
-- **信息密度高:** BottomBar 在一行内显示 4 项关键信息
-- **空间利用率:** 聊天区域宽度增加 ~30-40%
-- **交互简化:** 消息与工具调用内联，无需切换 Tab
+### v0.4.x
+- **双模式**：嵌入式 + WS 客户端，统一 stream 消费
+- **历史回滚**：点击消息 → 预填 → 回滚 → snapshot 重建
+- **轮次索引**：history_index 指向轮次起点（用户消息）

@@ -1,6 +1,6 @@
 # cairn 文档索引
 
-极简教学版 AI 编程助手，约 1800 行代码实现核心功能（已扩展以对标 Claude Code）。
+cairn 是一个 AI 编程助手（TUI），支持前后端分离、消息持久化、子代理与 MCP。
 
 ## 快速导航
 
@@ -9,7 +9,7 @@
 | 概述 | [/llmdoc/overview/](./overview/) | 项目背景、设计目标、技术选型 |
 | 指南 | [/llmdoc/guides/](./guides/) | 安装使用、开发调试指南 |
 | 架构 | [/llmdoc/architecture/](./architecture/) | 系统架构、模块设计、TUI 布局 |
-| 参考 | [/llmdoc/reference/](./reference/) | API 规范、数据模型 |
+| 参考 | [/llmdoc/reference/](./reference/) | API 规范、数据模型、WS 协议 |
 
 v0.3.0 迁移说明：
 - [/llmdoc/guides/migration-v0.3.0.md](./guides/migration-v0.3.0.md)
@@ -19,10 +19,23 @@ v0.3.0 迁移说明：
 
 ## 最近更新
 
+### v0.4.x — ChatService 重构 + 前后端分离
+
+- **ChatService**：Agent 生命周期管理，请求队列顺序执行，全局广播
+- **消息持久化**：`~/.cairn/history.json`，dataclass 循环序列化，重启恢复
+- **HTTP + WebSocket**：`POST /inject`（fire-and-forget）+ `WS /ws`（全双工事件流）
+- **全局广播**：所有事件对全部 WS 客户端可见，TUI 通过统一 stream 队列消费
+- **历史回滚**：点击任意消息 → 预填输入框 → 按轮次起点截断重发
+- **轮次索引**：message 的 `history_index` 指向轮次起点（用户消息），rollback 自动捕捉
+- **三种运行模式**：`cairn`（内嵌）、`cairn serve`（后端）、`cairn tui`（客户端）
+- **ChatEvent 类型**：`TextDelta` / `ToolStarted` / `ToolFinished` / `Done` / `Error`
+- 12 种下行事件 + 4 种上行消息（详见 [modules.md](./architecture/modules.md)）
+- 改名：`minicc` → `cairn`
+
 ### v0.3.2 (2025-12-18)
 - **ask_user 稳定性**：工具层改为强校验 + 友好报错（避免 `str has no attribute get`、空选项导致空面板）
 - **提示词约束**：系统提示词明确 `ask_user` 每题必须提供 `header/question/options`
-- **问答面板**：自定义项显示为“其他（自定义输入）”，减少误解
+- **问答面板**：自定义项显示为"其他（自定义输入）"，减少误解
 - 相关：`cairn/tools/interact.py`、`cairn/prompts/system.md`、`cairn/tui/ask_user_panel.py`、`tests/test_ask_user_normalize.py`
 
 ### MCP 载入与工具提示完善 (v0.2.3 - 2025-12-13)
@@ -104,14 +117,25 @@ v0.3.0 迁移说明：
 
 ```
 cairn/
-├── cli.py       # CLI 入口（启动 TUI）
-├── core/        # 运行时/模型/事件总线/MCP 预加载
-├── tools/       # 工具实现（按职责拆分）
-└── tui/         # Textual TUI（消费 stream events）
+├── cli.py              # CLI 入口（3 种子命令）
+├── server.py           # FastAPI + WebSocket 服务端
+├── core/               # 运行时/模型/事件/ChatService/持久化
+│   ├── chat_service.py # Agent 生命周期 + 请求队列 + 广播
+│   ├── chat_events.py  # 聊天事件类型
+│   ├── persistence.py  # 消息持久化
+│   └── services/       # ask_user / subagents
+├── tools/              # 工具实现
+├── tui/                # Textual TUI
+│   ├── app.py          # 主应用（嵌入式 / 客户端双模式）
+│   ├── client.py       # WebSocket 客户端
+│   └── widgets.py      # UI 组件
+└── prompts/            # 系统提示词
 ```
 
 ## 技术栈
 
 - **pydantic-ai**: Agent 框架，提供工具注册、流式输出
 - **Textual**: TUI 框架，提供终端界面
+- **FastAPI + uvicorn**: HTTP + WebSocket 服务端
+- **websockets**: TUI 客户端的 WebSocket 连接
 - **Pydantic**: 数据验证和序列化
