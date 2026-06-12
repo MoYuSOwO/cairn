@@ -53,6 +53,9 @@ class _FakeResult:
     def all_messages(self):
         return self._messages
 
+    def new_messages(self):
+        return self._messages
+
     def usage(self):
         return self._usage
 

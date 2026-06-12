@@ -55,6 +55,7 @@ def create_agent(
     cwd: str | Path | None = None,
     toolsets: list[AbstractToolset[Any]] | None = None,
     register_tools: Callable[[Agent[cairnDeps, str]], None] | None = None,
+    system_prompt: str | None = None,
 ) -> Agent[cairnDeps, str]:
     """
     创建并配置主 Agent
@@ -62,10 +63,12 @@ def create_agent(
     说明：
     - MCP toolsets 默认在此处加载，但 TUI 运行时会在启动阶段预加载并传入（避免重复加载）。
     - 工具注册通过 register_tools 回调注入（便于拆分 tools 模块）。
+    - system_prompt 默认为 load_agents_prompt()，可传入自定义前缀（如 build_stable_prefix()）。
     """
 
     model = create_model(config)
-    system_prompt = load_agents_prompt()
+    if system_prompt is None:
+        system_prompt = load_agents_prompt()
     model_settings = _build_model_settings(config)
 
     if toolsets is None:

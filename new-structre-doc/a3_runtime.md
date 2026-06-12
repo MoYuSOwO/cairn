@@ -157,7 +157,7 @@ class SessionCompact:
     summary_block: str                          # Summary 区：纯文本摘要
     compressed_turns: list[CompressedTurn]       # Compress 区：精简后的对话轮次
     generated_at: datetime
-    source_token_span: tuple[int, int]
+    token_reduction: tuple[int, int]              # (压缩前 token 数, 压缩后 token 数)
 
 class CompressedTurn:
     turn_span: tuple[int, int]                  # 原始轮次范围
@@ -279,12 +279,14 @@ C. 自然淡出
 - 或每 N 轮做一次轻筛选
 - 或反思任务回溯筛选（a4）
 
-初版筛选信号（可规则化）：
-- 情绪强度高
-- 用户明确要求记住
-- 关系事件
-- 重要事实更新
-- 工具/活动中的关键经历
+筛选由 LLM 完成（异步，不在实时路径上，不违反 N21）：
+
+- 输入：最近 3–5 轮上下文 + 本轮 user/assistant + 角色 profile + 工具事件（可选）+ 情绪向量（可选）
+- 输出：结构化 JSON，包含是否值得记忆、提取的记忆条目列表、每条的信号类型与重要性
+- 信号类型枚举：`emotion`（情绪高峰）/ `explicit_remember`（用户明确要求）/ `relationship_event`（关系转折）/ `fact_update`（事实变更）/ `key_experience`（关键经历）/ `other`
+- 一轮可提取多条，分别入候选队列
+- 只提取用户侧事实，AI 回复仅作上下文理解用，不作为事实源
+- 调用失败或 JSON 解析失败时本轮跳过，不影响主对话流程
 
 ## 5.3 写入约束复用 a1
 

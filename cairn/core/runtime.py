@@ -53,6 +53,8 @@ def build_runtime(config: Config | None = None, cwd: str | None = None) -> cairn
 
     agent = create_agent(cfg, cwd=cwd, toolsets=toolsets, register_tools=register_tools)
     store = MessageStore()
+    # assembly 在配置好 embedder + compact LLM 后通过 build_runtime 参数注入，
+    # 初期为 None（退化为直接模式）
     chat_service = ChatService(agent=agent, deps=deps, store=store)
     return cairnRuntime(config=cfg, cwd=cwd, deps=deps, chat_service=chat_service, event_bus=event_bus, fs=fs, toolsets=toolsets)
 

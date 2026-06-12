@@ -71,6 +71,7 @@ class ChatService:
         agent: Any,
         deps: cairnDeps,
         store: MessageStore | None = None,
+        assembly: Any | None = None,
     ) -> None:
         self._agent = agent
         self._deps = deps
@@ -80,6 +81,7 @@ class ChatService:
         self._broadcast: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._busy: bool = False
+        self._assembly = assembly
 
     @property
     def messages(self) -> list[Any]:
@@ -160,11 +162,27 @@ class ChatService:
     async def _process(self, user_input: str) -> AsyncIterator[Any]:
         """运行一轮对话，产出 ChatEvent（TextDelta / ToolStarted / ToolFinished / Done / Error）。"""
         streamed_text = ""
+        # 装配 message_history（recall + compact + injection）
+        if self._assembly:
+            assembled = await self._assembly.assemble(user_input, self._messages)
+        else:
+            assembled = list(self._messages)
+
+        # 从 assembled 提取干净的 base（去掉注入块），更新 self._messages
+        # 注入块 SystemPromptPart 在位置 0，compact 后的 base 从位置 1 开始
+        base = list(assembled)
+        if base:
+            first = base[0]
+            first_parts = getattr(first, "parts", [])
+            if first_parts and all(
+                getattr(p, "part_kind", None) == "system-prompt" for p in first_parts
+            ):
+                base = base[1:]
         try:
             async for event in self._agent.run_stream_events(
                 user_input,
                 deps=self._deps,
-                message_history=self._messages,
+                message_history=assembled,
             ):
                 if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
                     streamed_text += event.part.content
@@ -195,7 +213,8 @@ class ChatService:
                     )
 
                 elif isinstance(event, AgentRunResultEvent):
-                    self._messages = event.result.all_messages()
+                    new_msgs = event.result.new_messages()
+                    self._messages = base + list(new_msgs)
                     if not streamed_text:
                         output = str(event.result.output)
                         if output:
